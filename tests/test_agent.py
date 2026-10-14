@@ -140,3 +140,101 @@ def test_effective_mode():
     assert effective_mode("t2va", ["subject"]) == "ref2va"
     assert effective_mode("i2va", []) == "t2va"
     assert effective_mode("ref2va", ["subject"]) == "ref2va"
+
+
+def test_upsert_shot_tool_guards(harness):
+    async def go():
+        h = harness
+        await h.create_project("Guards")
+        from harness.llm.tools import ToolBox
+        box = ToolBox(h)
+        out = json.loads(await box.run("upsert_shot", {"title": "The airship", "prompt": "", "status": "rendering"}))
+        assert out["ignored"] == ["prompt", "status"]
+        sid = out["shot_id"]
+        dup = json.loads(await box.run("upsert_shot", {"title": "the airship ", "description": "again"}))
+        assert "already has the title" in dup["error"]
+        assert "no shot 99" in json.loads(await box.run("upsert_shot", {"title": "x", "after_shot_id": 99}))["error"]
+        with h.p().session() as s:
+            assert len(s.exec(m.Shot.__table__.select()).all()) == 1
+            assert s.get(m.Shot, sid).status == "draft"
+        # a second render of a shot that is already queued is refused (UI and Qwen alike)
+        h.queue.submit("shot", "video", lambda ctx: asyncio.sleep(3600), {"shot_id": sid})
+        from harness.core import HarnessError
+        with pytest.raises(HarnessError, match="already"):
+            h.render_shot(sid, enhance=True)
+        out = json.loads(await box.run("upsert_shot", {"shot_id": sid, "description": "new"}))
+        assert "stale" in out["warning"]
+        await h.close_project()
+    asyncio.run(go())
+
+
+def test_empty_director_reply_is_nudged(harness):
+    async def go():
+        h = harness
+        await h.create_project("Nudge")
+        h.llm = ScriptedLLM([Reply(tool_calls=[call("list_shots")]), Reply(content=""),
+                             Reply(content="I listed the shots.")])
+        assert await Director(h).turn("hi") == "I listed the shots."
+        h.llm = ScriptedLLM([Reply(content=""), Reply(content="")])
+        assert "without a reply" in await Director(h).turn("hi")
+        await h.close_project()
+    asyncio.run(go())
+
+
+def test_video_prompt_writer_retries_then_fails_on_empty():
+    from harness.llm import roles
+    from harness.llm.client import LLMError
+    shot = {"title": "t", "description": "d"}
+    llm = ScriptedLLM([Reply(content="", finish_reason="length"), Reply(content="[Shot 1] ok")])
+    assert asyncio.run(roles.write_h3_prompt(llm, bible="", shot=shot, mode="t2va", duration=5, slots=[],
+                                             header=None)) == "[Shot 1] ok"
+    llm = ScriptedLLM([Reply(content=""), Reply(content="  ")])
+    with pytest.raises(LLMError, match="empty video prompt"):
+        asyncio.run(roles.write_h3_prompt(llm, bible="", shot=shot, mode="t2va", duration=5, slots=[], header=None))
+
+
+def test_cut_sources_reuse_upscales(harness, tmp_path):
+    async def go():
+        h = harness
+        await h.create_project("Cut")
+        p = h.p()
+        def f(name):
+            x = p.media("previews") / name; x.write_bytes(b"x"); return x
+        a, b = h.upsert_shot(None, title="a"), h.upsert_shot(None, title="b")
+        with p.session() as s:
+            ids = []
+            for sid in (a, b):
+                r = m.Render(shot_id=sid, stage="preview", workflow="minimax_h3@v251")
+                s.add(r); s.flush()
+                r.file_id = p.register_file(s, f(f"{sid}.mp4"), "preview", "render", r.id).id
+                r.latent_video_file_id = p.register_file(s, f(f"{sid}v.latent"), "latent", "render", r.id).id
+                r.latent_audio_file_id = p.register_file(s, f(f"{sid}a.latent"), "latent", "render", r.id).id
+                s.get(m.Shot, sid).final_render_id = r.id
+                ids.append(r.id)
+            up = m.Render(shot_id=a, stage="final", parent_id=ids[0])
+            s.add(up); s.flush()
+            up.file_id = p.register_file(s, f("a_final.mp4"), "video", "render", up.id).id
+            up_id = up.id
+        src = h.cut_sources()
+        assert [(d["render_id"], d["upscaled_id"], d["can_upscale"]) for d in src] == \
+            [(ids[0], up_id, True), (ids[1], None, True)]
+        await h.close_project()
+    asyncio.run(go())
+
+
+def test_one_first_frame_per_shot(harness, tmp_path):
+    async def go():
+        h = harness
+        await h.create_project("Frames")
+        from PIL import Image
+        img = tmp_path / "f.png"; Image.new("RGB", (32, 32)).save(img)
+        v1 = h.import_reference_file(img, "Square", "location")
+        v2 = h.import_reference_file(img, "Concept", "concept")
+        sid = h.upsert_shot(None, title="s")
+        h.assign_ref(sid, version_id=v1, role="first_frame")
+        from harness.core import HarnessError
+        with pytest.raises(HarnessError, match="already has a first frame .'Square'"):
+            h.assign_ref(sid, version_id=v2, role="first_frame")
+        assert [x["role"] for x in h.assign_ref(sid, version_id=v2, role="last_frame")] == ["first_frame", "last_frame"]
+        await h.close_project()
+    asyncio.run(go())

@@ -169,12 +169,16 @@ def shot_delete_plan(s: Session, shot_id: int, orphan_refs: bool = False) -> Del
 
 
 def orphan_plan(s: Session) -> DeletePlan:
-    """Clean-up: unpicked previews of finished shots, their latents, and unreferenced
-    reference versions that are not the current version of their reference."""
+    """Clean-up: previews of finished shots other than the timeline one (with their upscales),
+    latents already upscaled from, and unreferenced reference versions that are not the
+    current version of their reference. A timeline preview keeps its latents: the final
+    cut upscales from them."""
     plan = DeletePlan()
     for shot in s.exec(select(m.Shot).where(m.Shot.final_render_id.is_not(None))).all():
         final = s.get(m.Render, shot.final_render_id)
         for r in s.exec(select(m.Render).where(m.Render.shot_id == shot.id, m.Render.stage == "preview")).all():
+            if final and r.id == final.id:
+                continue
             if final and r.id == final.parent_id:
                 plan.files += [f for f in _files_owned(s, "render", r.id) if f.kind == "latent"]
                 continue

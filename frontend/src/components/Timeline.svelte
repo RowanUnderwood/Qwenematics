@@ -25,18 +25,28 @@
     await guard(() => api.post('/api/shots/reorder', ids))
     dragId = null; load.shots()
   }
-  async function cut() {
+  // the timeline clip counts as upscaled if it is a final render or has one made from it
+  const upscaled = (s) => {
+    const r = s.renders.find((x) => x.id === s.final_render_id)
+    return r && (r.stage === 'final' || s.renders.some((x) => x.parent_id === r.id && x.stage === 'final'))
+  }
+  async function cut(upscale) {
     const missing = app.shots.filter((s) => !s.final_render_id).map((s) => s.title)
-    if (missing.length && !confirm(`These shots have no final clip and will be skipped:\n${missing.join('\n')}\n\nContinue?`)) return
-    await guard(() => api.post('/api/final_cut', { name: app.project.name }))
-    toast('Rendering the final cut…')
+    const todo = upscale ? app.shots.filter((s) => s.final_render_id && !upscaled(s)).length : 0
+    const notes = []
+    if (missing.length) notes.push(`These shots have no clip and will be skipped:\n${missing.join('\n')}`)
+    if (todo) notes.push(`${todo} shot(s) will be upscaled first (about 1-1.5 min each on the 5090).`)
+    if (notes.length && !confirm(notes.join('\n\n') + '\n\nContinue?')) return
+    await guard(() => api.post('/api/final_cut', { name: app.project.name, upscale }))
+    toast(upscale ? 'Rendering the final cut…' : 'Joining the previews…')
   }
 </script>
 
 <div class="scroll pad col">
   <div class="row">
     <h2 class="grow">Timeline · {app.shots.length} shots · {total.toFixed(1)} s</h2>
-    <button class="primary" onclick={cut}>Render final video with audio</button>
+    <button onclick={() => cut(false)} title="Join the timeline previews as they are, without upscaling">Quick preview cut</button>
+    <button class="primary" onclick={() => cut(true)} title="Upscale every shot not upscaled yet, then join them">Render final video with audio</button>
   </div>
   <p class="muted">Drag shots to reorder. Click any clip or picture to view it large; 💬 pins it to the chat. Coloured outlines mark references reused across shots.</p>
 
@@ -48,10 +58,12 @@
            ondragstart={() => (dragId = s.id)} ondragover={(e) => e.preventDefault()} ondrop={() => drop(s.id)}>
         <div class="row head"><strong class="grow">{i + 1}. {s.title}</strong><span class="muted">{s.duration_s}s</span></div>
         <Media file_id={fin?.file_id} video size={Math.max(150, s.duration_s * PX_PER_S - 22)}
-               item={fin ? { type: 'render', id: fin.id } : null} label={fin ? '' : 'no final clip'} />
+               item={fin ? { type: 'render', id: fin.id } : null} label={fin ? '' : s.job ? 'rendering…' : 'no clip yet'} />
         <div class="row">
           {#if s.stale}<span class="badge warn">stale</span>{/if}
-          <span class="badge">{s.mode}</span><span class="badge">{s.status}</span>
+          <span class="badge">{s.mode}</span>
+          {#if fin}<span class="badge">{upscaled(s) ? 'upscaled' : 'preview'}</span>{/if}
+          <span class="badge">{s.job ? (s.job.state === 'running' ? 'rendering' : 'queued') : s.status}</span>
         </div>
         <div class="row pics">
           {#each s.slots as sl}

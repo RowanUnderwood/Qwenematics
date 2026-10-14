@@ -483,10 +483,12 @@ async def set_current(ref_id: int, version_id: int):
 
 
 # ------------------------------------------------------------------ shots
-def _shot_json(s, x: m.Shot, wf: str) -> dict:
+def _shot_json(s, x: m.Shot, wf: str, jobs: dict[int, m.Job]) -> dict:
     d = x.model_dump()
     d["slots"] = H.shot_slots(x.id)
-    d["stale"] = deps.is_stale(s, x, x.workflow or wf)
+    j = jobs.get(x.id)
+    d["job"] = {"id": j.id, "state": j.state, "progress": j.progress, "message": j.message} if j else None
+    d["stale"] = not j and deps.is_stale(s, x, x.workflow or wf)    # a running job replaces the clip anyway
     d["renders"] = [{"id": r.id, "stage": r.stage, "seed": r.seed, "file_id": r.file_id, "picked": r.picked,
                      "parent_id": r.parent_id, "score": (r.critic or {}).get("score"), "critic": r.critic,
                      "created": r.created, "prompt": r.prompt}
@@ -497,8 +499,9 @@ def _shot_json(s, x: m.Shot, wf: str) -> dict:
 @app.get("/api/shots")
 async def shots():
     wf = H.registry.get("minimax_h3").key
+    jobs = H.active_shot_jobs()
     with proj().session() as s:
-        return [_shot_json(s, x, wf) for x in s.exec(select(m.Shot).order_by(m.Shot.order)).all()]
+        return [_shot_json(s, x, wf, jobs) for x in s.exec(select(m.Shot).order_by(m.Shot.order)).all()]
 
 
 @app.post("/api/shots")
@@ -555,7 +558,9 @@ async def render(shot_id: int, r: RenderIn):
 @app.post("/api/shots/{shot_id}/final/{render_id}")
 async def set_final(shot_id: int, render_id: int):
     with proj().session() as s:
-        x = s.get(m.Shot, shot_id)
+        x, r = s.get(m.Shot, shot_id), s.get(m.Render, render_id)
+        if x is None or r is None or r.shot_id != shot_id:
+            raise HarnessError(f"render {render_id} does not belong to shot {shot_id}")
         x.final_render_id = render_id
         s.add(x)
     bus.publish("shot", id=shot_id)
@@ -728,11 +733,17 @@ async def cleanup():
 class CutIn(BaseModel):
     name: str | None = None
     loudnorm: bool = True
+    upscale: bool = True                   # off: join the timeline previews as they are
 
 
 @app.post("/api/final_cut")
 async def final_cut(c: CutIn):
-    return {"job_id": H.final_cut(c.name, c.loudnorm)}
+    return {"job_id": H.final_cut(c.name, c.loudnorm, c.upscale)}
+
+
+@app.get("/api/final_cut/plan")
+async def final_cut_plan():
+    return H.cut_sources()
 
 
 @app.get("/api/exports")

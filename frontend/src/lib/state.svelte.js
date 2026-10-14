@@ -96,6 +96,7 @@ function wire(e) {
       break
     case 'job':
       soon('jobs', load.jobs)
+      if (e.state !== 'running' || e.message) soon('shots', load.shots, 1000)   // live queued/rendering badges
       if (e.state === 'failed') toast(`Job ${e.id} failed: ${e.message}`, 'error')
       if (e.state === 'done') { soon('refs', load.refs); soon('shots', load.shots); soon('exports', load.exports) }
       break

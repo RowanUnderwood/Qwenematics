@@ -6,6 +6,7 @@ eat into the director's context. The writers get the bible text the director kee
 from __future__ import annotations
 
 import json
+import logging
 import re
 from functools import lru_cache
 from pathlib import Path
@@ -13,8 +14,9 @@ from typing import Any
 
 from .. import styles as style_lib
 from ..config import ROOT
-from .client import LLM
+from .client import LLM, LLMError, Reply
 
+log = logging.getLogger(__name__)
 PROMPTS = ROOT / "prompts"
 
 
@@ -94,18 +96,34 @@ def _clean(text: str) -> str:
     return t
 
 
+async def _non_empty(llm: LLM, messages: list[dict], reply: Reply, what: str) -> str:
+    """An empty reply usually means reasoning used up max_tokens: ask once more without
+    reasoning, then fail rather than render from an empty prompt."""
+    text = _clean(reply.content)
+    if text:
+        return text
+    log.warning("empty %s (finish_reason=%s, usage=%s, reasoning %d chars); retrying",
+                what, reply.finish_reason, reply.usage, len(reply.reasoning))
+    retry = await llm.chat(messages + [{"role": "user", "content": "Write the final prompt now. Output only the prompt."}],
+                           effort="none", max_tokens=16000)
+    text = _clean(retry.content)
+    if not text:
+        raise LLMError(f"Qwen returned an empty {what} twice (finish_reason={retry.finish_reason or reply.finish_reason})")
+    return text
+
+
 async def _with_lookups(llm: LLM, messages: list[dict], max_rounds: int = 3) -> str:
     for _ in range(max_rounds):
         reply = await llm.chat(messages, tools=WRITER_TOOLS, max_tokens=8000)
         if not reply.tool_calls:
-            return _clean(reply.content)
+            return await _non_empty(llm, messages, reply, "image prompt")
         messages = messages + [reply.as_message()]
         for tc in reply.tool_calls:
             args = tc.args()
             out = lookup_pose(args.get("name", "")) if tc.name == "lookup_pose" else lookup_style(args.get("name", ""))
             messages.append({"role": "tool", "tool_call_id": tc.id, "content": out})
-    reply = await llm.chat(messages + [{"role": "user", "content": "Now write the final prompt."}], max_tokens=8000)
-    return _clean(reply.content)
+    msgs = messages + [{"role": "user", "content": "Now write the final prompt."}]
+    return await _non_empty(llm, msgs, await llm.chat(msgs, max_tokens=8000), "image prompt")
 
 
 async def write_krea_prompt(llm: LLM, *, bible: str, name: str, kind: str, description: str,
@@ -164,8 +182,7 @@ async def write_h3_prompt(llm: LLM, *, bible: str, shot: dict, mode: str, durati
         lines.append(f"\nCritic's notes on the last render: {critique}")
     msgs = [{"role": "system", "content": prompt_file("h3_writer.md")},
             {"role": "user", "content": f"PROJECT BIBLE:\n{bible or '(empty)'}\n\n" + "\n".join(lines)}]
-    reply = await llm.chat(msgs, max_tokens=10000)
-    return _clean(reply.content)
+    return await _non_empty(llm, msgs, await llm.chat(msgs, max_tokens=10000), "video prompt")
 
 
 async def critique(llm: LLM, *, intent: str, prompt: str, media: list[dict],

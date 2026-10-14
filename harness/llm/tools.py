@@ -17,6 +17,7 @@ KINDS = ["character", "character_closeup", "location", "establishing", "prop", "
 ROLES_ = ["subject", "first_frame", "last_frame"]
 MODES = ["ref2va", "i2va", "fl2va", "l2va", "t2va"]
 BIBLE_KINDS = ["plot", "character", "location", "style", "audio", "dialogue", "note"]
+SHOT_FIELDS = {"title", "description", "dialogue", "audio_notes", "mode", "duration_s"}
 
 
 def _fn(name: str, description: str, props: dict, required: list[str] | None = None) -> dict:
@@ -54,12 +55,13 @@ TOOLS = [
         "audio_notes": {"type": "string"}, "mode": {"type": "string", "enum": MODES},
         "duration_s": {"type": "number", "description": "2-15 seconds"},
         "after_shot_id": {"type": "integer", "description": "Insert right after this shot (new shots only)."}}),
-    _fn("assign_ref", "Put a reference into a shot. role: subject (default), first_frame or last_frame.", {
+    _fn("assign_ref", "Put a reference into a shot. role: subject (default), first_frame or last_frame "
+                       "(at most one first_frame and one last_frame per shot).", {
         "shot_id": {"type": "integer"}, "ref_id": {"type": "integer"},
         "role": {"type": "string", "enum": ROLES_}}, ["shot_id", "ref_id"]),
     _fn("unassign_ref", "Remove a reference from a shot.", {
         "shot_id": {"type": "integer"}, "ref_id": {"type": "integer"}}, ["shot_id", "ref_id"]),
-    _fn("render_shot", "Queue the video render of a shot (writes its prompt, seed-hunts, upscales).", {
+    _fn("render_shot", "Queue the video render of a shot (writes its prompt, seed-hunts; the upscale happens at the final cut).", {
         "shot_id": {"type": "integer"},
         "change": {"type": "string", "description": "Optional change to make versus the last render."},
         "rewrite_prompt": {"type": "boolean"}}, ["shot_id"]),
@@ -141,11 +143,13 @@ class ToolBox:
     # ---------------------------------------------------------------- shots
     def t_list_shots(self):
         wf = self.h.registry.get("minimax_h3").key
+        jobs = self.h.active_shot_jobs()
         with self.h.p().session() as s:
             rows = s.exec(select(m.Shot).order_by(m.Shot.order)).all()
             return {"shots": [{"shot_id": x.id, "title": x.title, "mode": x.mode, "duration_s": x.duration_s,
-                               "status": x.status, "pictures": len(deps.slot_versions(s, x.id)),
-                               "stale": deps.is_stale(s, x, x.workflow or wf)} for x in rows]}
+                               "status": ("rendering" if jobs[x.id].state == "running" else "queued") if x.id in jobs else x.status,
+                               "pictures": len(deps.slot_versions(s, x.id)),
+                               "stale": x.id not in jobs and deps.is_stale(s, x, x.workflow or wf)} for x in rows]}
 
     def t_get_shot(self, shot_id):
         with self.h.p().session() as s:
@@ -159,25 +163,44 @@ class ToolBox:
                          for sl in self.h.shot_slots(shot_id)]
         return d
 
+    def _busy_note(self, shot_id) -> dict:
+        j = self.h.active_shot_jobs().get(shot_id)
+        return {"warning": f"shot {shot_id} is {'rendering' if j.state == 'running' else 'queued'} (job {j.id}); "
+                           "this change makes that render stale"} if j else {}
+
     def t_upsert_shot(self, shot_id=None, after_shot_id=None, **fields):
-        if shot_id is None and after_shot_id is not None:
-            with self.h.p().session() as s:
-                a = s.get(m.Shot, after_shot_id)
-                nxt = s.exec(select(m.Shot).where(m.Shot.order > a.order).order_by(m.Shot.order)).first()
-                fields["order"] = (a.order + nxt.order) / 2 if nxt else a.order + 1
+        # only the schema's fields: prompt, status, params... are not Qwen's to set here
+        ignored = sorted(k for k in fields if k not in SHOT_FIELDS)
+        fields = {k: v for k, v in fields.items() if k in SHOT_FIELDS}
+        with self.h.p().session() as s:
+            if shot_id is not None and s.get(m.Shot, shot_id) is None:
+                return {"error": f"no shot {shot_id}"}
+            if shot_id is None:
+                title = str(fields.get("title") or "").strip().lower()
+                dup = title and next((x for x in s.exec(select(m.Shot)).all() if x.title.strip().lower() == title), None)
+                if dup:
+                    return {"error": f"shot {dup.id} already has the title '{dup.title}'. Pass shot_id={dup.id} "
+                                     "to update it, or choose another title for a new shot."}
+                if after_shot_id is not None:
+                    a = s.get(m.Shot, after_shot_id)
+                    if a is None:
+                        return {"error": f"no shot {after_shot_id} to insert after"}
+                    nxt = s.exec(select(m.Shot).where(m.Shot.order > a.order).order_by(m.Shot.order)).first()
+                    fields["order"] = (a.order + nxt.order) / 2 if nxt else a.order + 1
         sid = self.h.upsert_shot(shot_id, **fields)
-        return {"shot_id": sid}
+        return {"shot_id": sid, **({"ignored": ignored} if ignored else {}),
+                **(self._busy_note(shot_id) if shot_id is not None else {})}
 
     def t_assign_ref(self, shot_id, ref_id, role="subject"):
         slots = self.h.assign_ref(shot_id, ref_id=ref_id, role=role)
         return {"pictures": [{"slot": x["slot"], "role": x["role"], "name": x["name"],
-                              **({"pending": True} if x["pending"] else {})} for x in slots]}
+                              **({"pending": True} if x["pending"] else {})} for x in slots], **self._busy_note(shot_id)}
 
     def t_unassign_ref(self, shot_id, ref_id):
         for x in self.h.shot_slots(shot_id):
             if x["ref_id"] == ref_id:
                 self.h.remove_slot(shot_id, x["slot_id"])
-                return {"ok": True}
+                return {"ok": True, **self._busy_note(shot_id)}
         return {"error": "that reference is not in the shot"}
 
     def t_render_shot(self, shot_id, change=None, rewrite_prompt=False):

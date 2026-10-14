@@ -156,3 +156,27 @@ def test_verbatim_prompt_keeps_text_but_enforces_style():
     assert enforce_style("A fox in snow.", line) == "A fox in snow.\n\n" + line
     assert enforce_style("A fox.\nStyle: photo\nmore", line) == "A fox.\n" + line + "\nmore"
     assert enforce_style("A fox.", None) == "A fox."
+
+
+def _preview_with_latents(proj, s, shot_id, name):
+    r = m.Render(shot_id=shot_id, stage="preview", workflow="minimax_h3@v251")
+    s.add(r); s.flush()
+    r.file_id = proj.register_file(s, _img(proj.media("previews"), f"{name}.mp4"), "preview", "render", r.id).id
+    r.latent_video_file_id = proj.register_file(s, _img(proj.media("previews"), f"{name}_v.latent"), "latent", "render", r.id).id
+    r.latent_audio_file_id = proj.register_file(s, _img(proj.media("previews"), f"{name}_a.latent"), "latent", "render", r.id).id
+    s.add(r); s.flush()
+    return r
+
+
+def test_cleanup_keeps_timeline_preview_latents(proj):
+    _, _, shots, _ = _setup(proj)
+    with proj.session() as s:
+        keep = _preview_with_latents(proj, s, shots[1], "keep")
+        drop = _preview_with_latents(proj, s, shots[1], "drop")
+        sh = s.get(m.Shot, shots[1])
+        sh.final_render_id = keep.id
+        s.add(sh); s.flush()
+        plan = deps.orphan_plan(s)
+        ids = {f.id for f in plan.files}
+        assert keep.latent_video_file_id not in ids and keep.file_id not in ids
+        assert drop.latent_video_file_id in ids and drop in plan.rows

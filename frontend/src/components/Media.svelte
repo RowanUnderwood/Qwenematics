@@ -26,7 +26,7 @@
     {#if label}<div class="lbl" title={label}>{label}</div>{/if}
   </div>
 {:else}
-  <div class="m empty" style="width:{size}px;height:{size * 0.6}px">{failed ? `${label ? label + ': ' : ''}file missing` : label || 'rendering…'}</div>
+  <div class="m empty" style="width:{size}px;height:{size * 0.6}px">{failed ? `${label ? label + ': ' : ''}file missing` : label || 'no clip yet'}</div>
 {/if}
 
 <style>

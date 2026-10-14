@@ -35,6 +35,10 @@
     const r = await guard(() => api.post('/api/shots', { title: `Shot ${app.shots.length + 1}`, duration_s: 15 }))
     await load.shots(); sel = r?.shot_id
   }
+  const jobLabel = (j) => j && (j.state === 'running' ? `rendering ${Math.round(j.progress * 100)}%` : 'queued')
+  // A timeline preview is upscaled at the final cut; its upscale (if made) is a final render with it as parent.
+  const upscaledOf = (s, r) => r && (r.stage === 'final' || s.renders.some((x) => x.parent_id === r.id && x.stage === 'final'))
+
   async function render(rewrite = false) {
     await save()
     await guard(() => api.post(`/api/shots/${shot.id}/render`, { change: (enhance && change) || null, rewrite_prompt: rewrite, enhance: enhance || rewrite }))
@@ -68,11 +72,11 @@
     {#each app.shots as s, i (s.id)}
       {@const fin = s.renders.find((r) => r.id === s.final_render_id)}
       <button class="item" class:on={shot?.id === s.id} onclick={() => (sel = s.id)}>
-        <Media file_id={fin?.file_id} video size={90} onclick={() => (sel = s.id)} />
+        <Media file_id={fin?.file_id} video size={90} onclick={() => (sel = s.id)} label={s.job ? jobLabel(s.job) + '…' : ''} />
         <div class="col" style="gap:2px;text-align:left">
           <strong>{i + 1}. {s.title}</strong>
           <span class="muted">{s.mode} · {s.duration_s}s · {s.slots.length} pics</span>
-          <span>{#if s.stale}<span class="badge warn">stale</span>{/if}<span class="badge">{s.status}</span></span>
+          <span>{#if s.stale}<span class="badge warn">stale</span>{/if}<span class="badge" class:warn={s.job}>{s.job ? jobLabel(s.job) : s.status}</span></span>
         </div>
       </button>
     {/each}
@@ -89,6 +93,7 @@
         <button class="danger" onclick={delShot}>Delete…</button>
       </div>
       {#if shot.stale}<div class="badge warn">Inputs changed since the last render: re-render to update the clip.</div>{/if}
+      {#if shot.job}<div class="badge">{jobLabel(shot.job)}{shot.job.message ? ' · ' + shot.job.message : ''}</div>{/if}
 
       <div class="cols">
         <div class="col">
@@ -128,8 +133,8 @@
         <div class="row">
           <input class="grow" placeholder={enhance ? "Optional change for this render, e.g. 'slower camera, she smiles at the end'" : 'Enhance is off: edit the video prompt below instead'}
                  bind:value={change} disabled={!enhance} />
-          <button class="primary" onclick={() => render(false)}>Render</button>
-          <button onclick={() => render(true)} disabled={!enhance} title="Have Qwen rewrite the video prompt first">Rewrite prompt + render</button>
+          <button class="primary" onclick={() => render(false)} disabled={!!shot.job}>Render</button>
+          <button onclick={() => render(true)} disabled={!enhance || !!shot.job} title="Have Qwen rewrite the video prompt first">Rewrite prompt + render</button>
           <label class="row muted" title="Off: the video prompt below goes to MiniMax verbatim; Qwen doesn't rewrite it, even after a low review score">
             <input type="checkbox" bind:checked={enhance} /> Enhance prompt</label>
         </div>
@@ -143,10 +148,10 @@
         {#each [...shot.renders].reverse() as r (r.id)}
           <div class="col">
             <Media file_id={r.file_id} video size={r.stage === 'final' ? 240 : 150} item={{ type: 'render', id: r.id }}
-                   label={`${r.stage} · seed ${r.seed}`} selected={r.id === shot.final_render_id}
-                   badge={r.id === shot.final_render_id ? 'in timeline' : r.picked ? 'picked' : r.score != null ? `${r.score}/10` : ''} />
+                   label={`${r.stage === 'final' ? 'upscaled' : 'preview'} · seed ${r.seed}${r.score != null ? ` · ${r.score}/10` : ''}`} selected={r.id === shot.final_render_id}
+                   badge={r.id === shot.final_render_id ? 'in timeline' + (upscaledOf(shot, r) ? ' · upscaled' : '') : r.picked ? 'picked' : ''} />
             <div class="row">
-              {#if r.stage === 'final' && r.id !== shot.final_render_id}<button class="small" onclick={() => setFinal(r)}>use in timeline</button>{/if}
+              {#if r.id !== shot.final_render_id}<button class="small" onclick={() => setFinal(r)}>use in timeline</button>{/if}
               <button class="small danger" onclick={() => delRender(r)}>✕</button>
             </div>
           </div>

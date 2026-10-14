@@ -41,14 +41,17 @@ class Director:
         bible = h.bible_text(2500)
         lines.append("BIBLE (abridged; get_bible for all):\n" + (bible or "(empty)"))
         wf = h.registry.get("minimax_h3").key
+        jobs = h.active_shot_jobs()
         with h.p().session() as s:
             shots = s.exec(select(m.Shot).order_by(m.Shot.order)).all()
             lines.append(f"SHOTS ({len(shots)}):" if shots else "SHOTS: none yet")
             for i, x in enumerate(shots, 1):
                 pics = ", ".join(f"P{sl['slot']}={sl['name']}" + ("(old ver)" if sl["outdated"] else "")
                                  for sl in h.shot_slots(x.id))
-                stale = " STALE" if deps.is_stale(s, x, x.workflow or wf) else ""
-                lines.append(f"  #{i} shot_id={x.id} '{x.title}' {x.mode} {x.duration_s:g}s [{x.status}{stale}] "
+                j = jobs.get(x.id)
+                status = ("rendering" if j.state == "running" else "queued") if j else x.status
+                stale = " STALE" if not j and deps.is_stale(s, x, x.workflow or wf) else ""
+                lines.append(f"  #{i} shot_id={x.id} '{x.title}' {x.mode} {x.duration_s:g}s [{status}{stale}] "
                              f"{x.description[:120]} | pictures: {pics or '-'}")
             refs = s.exec(select(m.Reference).order_by(m.Reference.id)).all()
             lines.append(f"REFERENCES ({len(refs)}):" if refs else "REFERENCES: none yet")
@@ -166,6 +169,20 @@ class Director:
         finally:
             self.busy = False
 
+    async def _nudge(self, messages: list[dict], calls: list[dict], on_delta) -> str:
+        """Qwen ended its turn with no text (often reasoning ran out of tokens): ask once
+        for a short report so the user is never left with an empty reply."""
+        try:
+            reply = await self.h.llm.chat(messages + [{"role": "user", "content":
+                                          "Briefly tell the user what you just did and what is next."}],
+                                          effort="none", max_tokens=1500, on_delta=on_delta)
+            if reply.content.strip():
+                return reply.content.strip()
+        except Exception as e:
+            log.warning("nudge failed: %s", e)
+        used = ", ".join(sorted({c["name"] for c in calls})) or "none"
+        return f"(Qwen ended its turn without a reply. Tools used: {used}.)"
+
     async def _turn(self, text: str, attachments: list[dict]) -> str:
         h = self.h
         await self.maybe_summarize()
@@ -196,6 +213,9 @@ class Director:
             reply = await h.llm.chat(messages, tools=TOOLS, on_delta=on_delta, max_tokens=12000)
             if not reply.tool_calls:
                 final = reply.content.strip()
+                if not final:
+                    log.warning("director ended with no text (finish_reason=%s)", reply.finish_reason)
+                    final = await self._nudge(messages, all_calls, on_delta)
                 break
             messages.append(reply.as_message())
             for tc in reply.tool_calls:

@@ -137,6 +137,10 @@ class Harness:
     async def open_project(self, path: Path) -> Project:
         await self.close_project()
         self.project = Project.open(path)
+        with self.project.session() as s:      # 'rendering' left by a job that died with the old process
+            for sh in s.exec(select(m.Shot).where(m.Shot.status == "rendering")).all():
+                sh.status = "done" if sh.final_render_id else "draft"
+                s.add(sh)
         self._start_queue()
         return self.project
 
@@ -458,6 +462,11 @@ class Harness:
                 raise HarnessError(f"'{ref.name}' is already in this shot")
             if len(slots) >= 9:
                 raise HarnessError("a shot holds at most 9 pictures")
+            if role in ("first_frame", "last_frame"):
+                same = next((x for x in slots if x.role == role), None)
+                if same:
+                    raise HarnessError(f"this shot already has a {role.replace('_', ' ')} "
+                                       f"('{s.get(m.Reference, same.ref_id).name}'); use role subject or remove it first")
             s.add(m.ShotSlot(shot_id=shot_id, ref_id=ref_id, ref_version_id=version_id, role=role, slot=slot or 99))
             s.flush()
             self._repack(s, shot_id)
@@ -522,9 +531,23 @@ class Harness:
             ctx.progress(0.0, f"waiting for reference images: {', '.join(waiting)}")
             await asyncio.sleep(3)
 
+    def active_shot_jobs(self) -> dict[int, m.Job]:
+        """shot id -> its queued or running render job."""
+        with self.p().session() as s:
+            jobs = s.exec(select(m.Job).where(m.Job.kind == "shot", m.Job.state.in_(["queued", "running"]))
+                          .order_by(m.Job.id)).all()
+        out: dict[int, m.Job] = {}
+        for j in jobs:
+            out.setdefault(j.payload.get("shot_id"), j)
+        return out
+
     def render_shot(self, shot_id: int, rewrite_prompt: bool = False, change: str | None = None,
                     seeds: int | None = None, enhance: bool = True) -> int:
         """With enhance off the shot's saved prompt goes to MiniMax verbatim and Qwen never rewrites it."""
+        busy = self.active_shot_jobs().get(shot_id)
+        if busy:
+            raise HarnessError(f"shot {shot_id} is already {'rendering' if busy.state == 'running' else 'queued'} "
+                               f"(job {busy.id})")
         if not enhance:
             with self.p().session() as s:
                 shot = s.get(m.Shot, shot_id)
@@ -564,8 +587,8 @@ class Harness:
                 sh = s.get(m.Shot, shot_id)
                 sh.mode = mode
                 s.add(sh)
-            self.chat_event(f"Shot '{shot_d['title']}': switched mode {shot_d['mode']} -> {mode} "
-                            "to match its first/last-frame pictures", [])
+            self.chat_event(f"Shot '{shot_d['title']}': {_mode_note(mode)} (mode {shot_d['mode']} -> {mode}; "
+                            "same model" + (", all pictures still used as references)" if slots else ")"), [])
             shot_d["mode"] = mode
         duration = shot_d["duration_s"]
         bible = self.bible_text()
@@ -573,14 +596,17 @@ class Harness:
         prompt = shot_d["prompt"]
         rounds = 1 + (int(it.get("max_video_iterations", 0)) if it.get("auto", True) and enhance else 0)
         critique_txt = None
-        final_id = None
-        # Hold the 5090 for the whole MiniMax section (previews, pick, upscale, review rounds):
-        # no image borrows it meanwhile, and Krea is emptied out of it first if it was there.
+        picked_id = None
+        accept = float(it.get("accept_score", 7))
+        versions = [x["version_id"] for x in slots]
+        # Hold the 5090 for the whole MiniMax section (previews, pick, review rounds): no image
+        # borrows it meanwhile, and Krea is emptied out of it first if it was there.
+        # The upscale (stage 2) happens at the final cut.
         async with self.pool.video_slot():
             for rnd in range(rounds):
                 ctx.check()
                 if not prompt or rewrite or change or critique_txt:
-                    ctx.progress(0.01, "writing video prompt")
+                    ctx.progress(0.01, "writing video prompt" + (f" (round {rnd + 1})" if rnd else ""))
                     prompt = await roles.write_h3_prompt(
                         self.llm, bible=bible, shot=shot_d, mode=mode, duration=duration, slots=slots,
                         style=styles.get(pset.get("krea_style")),
@@ -589,86 +615,99 @@ class Harness:
                     change, rewrite = None, False
                     with proj.session() as s:
                         sh = s.get(m.Shot, shot_id)
-                        sh.prompt, sh.status = prompt, "rendering"
+                        sh.prompt = prompt
                         s.add(sh)
                     bus.publish("shot", id=shot_id)
+                if not prompt.strip():
+                    raise HarnessError(f"shot {shot_id}: the video prompt is empty")
+                ihash = deps.input_hash(m.Shot(**{**shot_d, "prompt": prompt, "mode": mode}), versions, wv.key)
                 base = {**pset["params"].get(VIDEO_WF, {}), **(shot_d.get("params") or {}),
                         "prompt": prompt, "duration_s": duration, "aspect_ratio": pset["video_aspect"]}
                 n = int(seeds or base.get("preview_seeds") or wv.params["preview_seeds"]["default"])
+                more = rnd < rounds - 1
                 previews: list[tuple[int, dict, Any]] = []
                 self.queue.on_cancel[ctx.job_id] = self.clients[wv.manifest["server"]].interrupt
                 for i in range(n):
                     ctx.check()
                     params = wv.resolve_params({k: v for k, v in base.items() if k != "seed"})
-                    ctx.progress(0.05 + 0.6 * i / n, f"preview {i + 1}/{n} (seed {params['seed']})")
+                    ctx.progress(0.05 + 0.8 * i / n, f"preview {i + 1}/{n} (seed {params['seed']})"
+                                 + (f", round {rnd + 1}" if rnd else ""))
                     tag = f"shot{shot_id}_p{int(time.time())}_{i}"
                     try:
                         res = await self.runner.render(wv, "stage1", params, mode=mode, pictures=pics,
                                                        dest_dir=proj.media("previews"), tag=tag,
-                                                       on_progress=_comfy_progress(ctx, 0.05 + 0.6 * i / n, 0.6 / n))
+                                                       on_progress=_comfy_progress(ctx, 0.05 + 0.8 * i / n, 0.8 / n))
                     except WorkflowError as e:
                         raise HarnessError(f"shot {shot_id}: {e}")
-                    rid = self._save_render(shot_id, "preview", wv.key, mode, prompt, params, slots, res)
+                    rid = self._save_render(shot_id, "preview", wv.key, mode, prompt, params, slots, res, ihash=ihash)
                     previews.append((rid, params, res))
                     bus.publish("render", id=rid, shot_id=shot_id, stage="preview")
-                # --- seed hunt: critic picks, user may override
+                # --- seed hunt: the critic picks and scores (a lone preview is scored only if
+                # a review round may follow); the user may override the pick
                 pick_idx, crit = 0, {}
-                if n > 1:
-                    ctx.progress(0.66, "comparing previews")
+                if n > 1 or more:
+                    ctx.progress(0.87, "comparing previews" if n > 1 else "reviewing the preview")
                     parts = []
                     for k, (_, _, res) in enumerate(previews, 1):
                         vp, _ = media.video_part(res.outputs["preview"][0], proj.media("proxies"))
-                        parts += [{"type": "text", "text": f"Candidate {k}:"}, vp]
+                        parts += ([{"type": "text", "text": f"Candidate {k}:"}] if n > 1 else []) + [vp]
                     try:
                         crit = await roles.critique(self.llm, intent=shot_d["description"], prompt=prompt,
-                                                    media=parts, candidates=n)
+                                                    media=parts, candidates=n if n > 1 else 0)
                         pick_idx = max(0, min(n - 1, int(crit.get("pick", 1)) - 1))
                     except Exception as e:
-                        log.warning("critic pick failed: %s", e)
+                        log.warning("critic failed: %s", e)
+                if n > 1:
                     pick_idx = await self._await_user_pick(ctx, shot_id, previews, pick_idx, crit,
                                                            float(it.get("seedhunt_auto_proceed_s", 10)))
-                rid, params, res = previews[pick_idx]
+                picked_id, params, _ = previews[pick_idx]
                 with proj.session() as s:
-                    r = s.get(m.Render, rid)
+                    r = s.get(m.Render, picked_id)
                     r.picked, r.critic = True, crit
                     s.add(r)
-                # --- upscale
-                ctx.progress(0.72, "upscaling the chosen preview")
-                ctx.check()
-                res2 = await self.runner.render(
-                    wv, "stage2", params, mode=mode, pictures=pics, dest_dir=proj.media("renders"),
-                    tag=f"shot{shot_id}_final_{int(time.time())}",
-                    handoff={"video_latent": res.outputs["video_latent"][0], "audio_latent": res.outputs["audio_latent"][0]},
-                    on_progress=_comfy_progress(ctx, 0.72, 0.25))
-                final_id = self._save_render(shot_id, "final", wv.key, mode, prompt, params, slots, res2, parent=rid)
-                with proj.session() as s:
                     sh = s.get(m.Shot, shot_id)
-                    sh.final_render_id, sh.status = final_id, "done"
+                    sh.final_render_id, sh.status = picked_id, "done"
                     s.add(sh)
-                bus.publish("render", id=final_id, shot_id=shot_id, stage="final")
+                    pfid = r.file_id
+                bus.publish("render", id=picked_id, shot_id=shot_id, stage="preview")
                 bus.publish("shot", id=shot_id)
-                with proj.session() as s:
-                    ffid = s.get(m.Render, final_id).file_id
-                self.chat_event(f"Shot '{shot_d['title']}' rendered (seed {params.get('seed')})",
-                                [{"type": "render", "id": final_id, "shot_id": shot_id, "file_id": ffid,
+                score = float(crit.get("score", 0) or 0) if crit else None
+                self.chat_event(f"Shot '{shot_d['title']}' ready (preview, seed {params.get('seed')}"
+                                + (f", critic {score:.0f}/10" if score is not None else "")
+                                + "); it is upscaled at the final cut",
+                                [{"type": "render", "id": picked_id, "shot_id": shot_id, "file_id": pfid,
                                   "label": shot_d["title"], "video": True}])
-                if rnd == rounds - 1:
+                if not more or score is None or score >= accept:
                     break
-                ctx.progress(0.97, "reviewing the final clip")
-                try:
-                    vp, _ = media.video_part(res2.outputs["video"][0], proj.media("proxies"))
-                    fc = await roles.critique(self.llm, intent=shot_d["description"], prompt=prompt, media=[vp])
-                except Exception as e:      # the clip is done; a failed review must not fail the job
-                    log.warning("final review failed: %s", e)
-                    break
-                with proj.session() as s:
-                    r = s.get(m.Render, final_id)
-                    r.critic = fc
-                    s.add(r)
-                if float(fc.get("score", 0)) >= float(it.get("accept_score", 7)):
-                    break
-                critique_txt = fc.get("fix") or "; ".join(fc.get("issues", []))
-        return {"shot_id": shot_id, "final_render_id": final_id}
+                critique_txt = crit.get("fix") or "; ".join(crit.get("issues", [])) or "the critic scored it low"
+                self.chat_event(f"Shot '{shot_d['title']}': critic scored {score:.0f}/10 (below {accept:g}), "
+                                "rewriting the prompt and running another seed hunt", [])
+        return {"shot_id": shot_id, "final_render_id": picked_id}
+
+    async def _upscale(self, ctx: JobCtx, preview_id: int, start: float, span: float) -> int:
+        """Stage 2 of a preview from its saved latents. Call inside pool.video_slot()."""
+        proj = self.p()
+        with proj.session() as s:
+            r = s.get(m.Render, preview_id)
+            wv = self.registry.get_key(r.workflow)
+            pics = [proj.abspath(s.get(m.FileRec, s.get(m.RefVersion, v).file_id)) for v in r.slot_versions]
+            lat = {k: proj.abspath(s.get(m.FileRec, fid)) for k, fid in
+                   (("video_latent", r.latent_video_file_id), ("audio_latent", r.latent_audio_file_id))}
+            shot_id, mode, prompt, params, ihash = r.shot_id, r.mode, r.prompt, dict(r.params), r.input_hash
+            slots = [{"version_id": v} for v in r.slot_versions]
+        self.queue.on_cancel[ctx.job_id] = self.clients[wv.manifest["server"]].interrupt
+        try:
+            res = await self.runner.render(wv, "stage2", params, mode=mode, pictures=pics, dest_dir=proj.media("renders"),
+                                           tag=f"shot{shot_id}_final_{int(time.time())}", handoff=lat,
+                                           on_progress=_comfy_progress(ctx, start, span))
+        except WorkflowError as e:
+            raise HarnessError(f"shot {shot_id}: {e}")
+        finally:
+            self.queue.on_cancel.pop(ctx.job_id, None)
+        final_id = self._save_render(shot_id, "final", wv.key, mode, prompt, params, slots, res,
+                                     parent=preview_id, ihash=ihash)
+        bus.publish("render", id=final_id, shot_id=shot_id, stage="final")
+        return final_id
 
     async def _await_user_pick(self, ctx, shot_id, previews, pick_idx, crit, wait_s) -> int:
         ev = asyncio.Event()
@@ -704,15 +743,16 @@ class Harness:
                 return ids.index(chosen[-1])
         return pick_idx
 
-    def _save_render(self, shot_id, stage, wf, mode, prompt, params, slots, res, parent=None) -> int:
+    def _save_render(self, shot_id, stage, wf, mode, prompt, params, slots, res, parent=None, ihash="") -> int:
+        """ihash: the input hash of what was actually rendered (the shot row may have been
+        edited while the job ran)."""
         proj = self.p()
         with proj.session() as s:
-            shot = s.get(m.Shot, shot_id)
             versions = [x["version_id"] for x in slots]
             r = m.Render(id=next_id(s, m.Render), shot_id=shot_id, stage=stage, parent_id=parent, seed=params.get("seed"),
                          workflow=wf,
                          mode=mode, prompt=prompt, params=_jsonable(params), slot_versions=versions,
-                         input_hash=deps.input_hash(shot, versions, wf))
+                         input_hash=ihash or deps.input_hash(s.get(m.Shot, shot_id), versions, wf))
             s.add(r)
             s.flush()
             main = res.outputs.get("preview" if stage == "preview" else "video", [None])[0]
@@ -735,22 +775,62 @@ class Harness:
             return f"shot '{prev.title}': {prev.description[:400]}"
 
     # ------------------------------------------------------------ final cut
-    def final_cut(self, name: str | None = None, loudnorm: bool = True) -> int:
-        return self.queue.submit("final_cut", "local", lambda ctx: self._final_cut_job(ctx, name, loudnorm), {})
+    def final_cut(self, name: str | None = None, loudnorm: bool = True, upscale: bool = True) -> int:
+        """upscale=False joins the timeline previews as they are (a quick watch-through)."""
+        return self.queue.submit("final_cut", "video" if upscale else "local",
+                                 lambda ctx: self._final_cut_job(ctx, name, loudnorm, upscale), {"upscale": upscale})
 
-    async def _final_cut_job(self, ctx: JobCtx, name: str | None, loudnorm: bool) -> dict:
+    def cut_sources(self) -> list[dict]:
+        """Per shot in timeline order: the render to use now and, for a preview, the upscaled
+        child to reuse or whether one must be made."""
         proj = self.p()
-        clips = []
+        out = []
         with proj.session() as s:
             for sh in s.exec(select(m.Shot).order_by(m.Shot.order)).all():
-                if sh.final_render_id:
-                    r = s.get(m.Render, sh.final_render_id)
-                    if r and r.file_id:
-                        clips.append(proj.abspath(s.get(m.FileRec, r.file_id)))
-        if not clips:
-            raise HarnessError("no shots have a final render yet")
-        first = media.probe(clips[0])
-        w, h = first["width"], first["height"]
+                r = s.get(m.Render, sh.final_render_id) if sh.final_render_id else None
+                if not (r and r.file_id):
+                    continue
+                d = {"shot_id": sh.id, "title": sh.title, "render_id": r.id, "upscaled_id": None, "can_upscale": False}
+                if r.stage == "final":
+                    d["upscaled_id"] = r.id
+                else:
+                    child = s.exec(select(m.Render).where(m.Render.parent_id == r.id, m.Render.stage == "final",
+                                                          m.Render.file_id.is_not(None)).order_by(m.Render.id.desc())).first()
+                    if child and proj.abspath(s.get(m.FileRec, child.file_id)).is_file():
+                        d["upscaled_id"] = child.id
+                    lat = [s.get(m.FileRec, x) for x in (r.latent_video_file_id, r.latent_audio_file_id) if x]
+                    d["can_upscale"] = len(lat) == 2 and all(proj.abspath(f).is_file() for f in lat)
+                out.append(d)
+        return out
+
+    async def _final_cut_job(self, ctx: JobCtx, name: str | None, loudnorm: bool, upscale: bool = True) -> dict:
+        proj = self.p()
+        src = self.cut_sources()
+        if not src:
+            raise HarnessError("no shots have a clip in the timeline yet")
+        if upscale:
+            todo = [d for d in src if d["upscaled_id"] is None]
+            missing = [d["title"] for d in todo if not d["can_upscale"]]
+            if missing:
+                self.chat_event("Final cut: no latents to upscale " + ", ".join(f"'{t}'" for t in missing)
+                                + " - using the preview" + ("s" if len(missing) > 1 else ""), [])
+            todo = [d for d in todo if d["can_upscale"]]
+            if todo:
+                async with self.pool.video_slot():
+                    for k, d in enumerate(todo):
+                        ctx.check()
+                        ctx.progress(0.9 * k / len(todo), f"upscaling '{d['title']}' ({k + 1}/{len(todo)})")
+                        d["upscaled_id"] = await self._upscale(ctx, d["render_id"], 0.9 * k / len(todo), 0.9 / len(todo))
+                        bus.publish("shot", id=d["shot_id"])
+        clips = []
+        with proj.session() as s:
+            for d in src:
+                r = s.get(m.Render, (d["upscaled_id"] if upscale else None) or d["render_id"])
+                clips.append(proj.abspath(s.get(m.FileRec, r.file_id)))
+        if not upscale:
+            name = (name or proj.name) + "_preview"
+        biggest = max((media.probe(c) for c in clips), key=lambda i: i["width"] * i["height"])   # previews may be mixed in
+        w, h = biggest["width"], biggest["height"]
         out = proj.root / "exports" / f"{re.sub(r'[^\w-]+', '_', name or proj.name)}_{time.strftime('%Y%m%d_%H%M%S')}.mp4"
         cmd = ["ffmpeg", "-v", "error", "-y"]
         filters, labels = [], []
@@ -769,7 +849,7 @@ class Harness:
         filters.append("[a0]loudnorm=I=-16:TP=-1.5:LRA=11[a]" if loudnorm else "[a0]anull[a]")
         cmd += ["-filter_complex", ";".join(filters), "-map", "[v]", "-map", "[a]", "-c:v", "libx264",
                 "-preset", "medium", "-crf", "17", "-c:a", "aac", "-b:a", "256k", "-movflags", "+faststart", str(out)]
-        ctx.progress(0.1, f"joining {len(clips)} clips")
+        ctx.progress(0.92 if upscale else 0.1, f"joining {len(clips)} clips")
         proc = await asyncio.create_subprocess_exec(*cmd, stderr=asyncio.subprocess.PIPE, creationflags=NO_WINDOW)
         _, err = await proc.communicate()
         if proc.returncode != 0:
@@ -796,6 +876,14 @@ def effective_mode(mode: str, roles: list[str]) -> str:
     if mode == "t2va" and roles:
         return "ref2va"
     return mode
+
+
+def _mode_note(mode: str) -> str:
+    """What a mode does to the pictures, for the user (modes only rewire frame guides)."""
+    return {"i2va": "using <Picture 1> as the exact first frame",
+            "l2va": "using <Picture 1> as the exact last frame",
+            "fl2va": "using <Picture 1> as the exact first frame and <Picture 2> as the exact last frame",
+            }.get(mode, "no first/last-frame picture any more")
 
 
 def _comfy_progress(ctx: JobCtx, start: float, span: float):
