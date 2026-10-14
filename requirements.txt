@@ -1,0 +1,10 @@
+fastapi
+uvicorn[standard]
+httpx
+websockets
+pyyaml
+sqlmodel
+pillow
+numpy
+python-multipart
+pytest

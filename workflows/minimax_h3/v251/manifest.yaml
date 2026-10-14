@@ -1,0 +1,155 @@
+# MiniMax H3 SeedHunter v2.5.1 (Veda), harness copy of
+# "minimaxH3SEEDHUNTERLatent_v251_Veda_Jakes version". Built by
+# tools/build_minimax_v251.py from source_ui.json.
+#
+# Two graphs: stage1 renders one seed at low res and saves its latents; the harness
+# runs it once per seed, the critic (or you) picks one, stage2 upscales that latent.
+id: minimax_h3
+version: v251
+label: MiniMax H3 SeedHunter - reference to video + audio
+kind: video
+server: video
+prompt_guide: h3                # prompts/h3_writer.md
+
+graphs:
+  stage1: stage1.api.json
+  stage2: stage2.api.json
+
+outputs:
+  stage1:
+    preview: {node: "18", kind: gifs}
+    video_latent: {node: h_save_video_latent, kind: latents}
+    audio_latent: {node: h_save_audio_latent, kind: latents}
+  stage2:
+    video: {node: "34", kind: gifs}
+
+# Latent hand-off: stage1 outputs -> stage2 LoadLatent inputs.
+handoff:
+  video_latent: {node: h_load_video_latent, input: latent}
+  audio_latent: {node: h_load_audio_latent, input: latent}
+
+# Picture slots, in <Picture k> order. Unused slots are removed; used ones are packed
+# from slot 1 up, so <Picture k> in the prompt always means slot k.
+slots:
+  pictures:
+    max: 9
+    nodes: [h_pic_1, h_pic_2, h_pic_3, h_pic_4, h_pic_5, h_pic_6, h_pic_7, h_pic_8, h_pic_9]
+    input: image
+
+# Modes (from VIDEO_PROMPT_WRITING_GUIDE + reference-to-video). `ops` edit the graph;
+# `header` is the fixed first line of the prompt ({duration} = seconds, 2 decimals).
+modes:
+  t2va:
+    label: Text to video
+    pictures: {min: 0, max: 0}
+    ops: [{bypass: "272"}, {bypass: h_lf_guide}]
+  ref2va:
+    label: Reference images to video
+    pictures: {min: 1, max: 9}
+    ops: [{bypass: "272"}, {bypass: h_lf_guide}]
+  i2va:
+    label: First frame (Picture 1) to video
+    pictures: {min: 1, max: 9, roles: [first_frame]}
+    ops: [{bypass: h_lf_guide}]
+    header: "For the target video, at 0.00 seconds into the target video, <Picture 1> (from [Shot 1]) is fully referenced."
+  fl2va:
+    label: First (Picture 1) and last (Picture 2) frame
+    pictures: {min: 2, max: 9, roles: [first_frame, last_frame]}
+    ops: []
+    header: "How the reference pictures align with the target video — Picture 1 (from Shot 1) aligns with the 0.00-second mark of the target video; Picture 2 (from Shot {last_shot}) aligns with the {duration}-second mark of the target video."
+  l2va:
+    label: Last frame (Picture 1)
+    pictures: {min: 1, max: 9, roles: [last_frame]}
+    ops: [{bypass: "272"}, {link: {node: h_lf_resize, input: image, to: [h_pic_1, 0]}}]
+    header: "How the reference pictures align with the target video — <Picture 1> (from [Shot {last_shot}]) aligns with the {duration}-second mark of the target video."
+
+params:
+  prompt:
+    type: text
+    qwen: true
+    targets: [{node: "5", input: prompt}]
+  duration_s:
+    type: float
+    qwen: true
+    default: 15.0
+    min: 2.0
+    max: 15.0
+    help: Seconds. Snapped by the workflow to 17n+5 frames at 24 fps (15 s -> 362 frames, the trained maximum).
+    targets: [{node: "22:23", input: value}]
+  preview_seeds:
+    type: int
+    qwen: true
+    default: 3
+    min: 1
+    max: 6
+    virtual: true               # read by the seed-hunt job, not written into a graph
+  aspect_ratio:
+    type: enum
+    default: "16:9 (Widescreen)"
+    choices_from: {node: "22:9", input: aspect_ratio}
+    targets: [{node: "22:9", input: aspect_ratio}]
+  megapixels:
+    type: float
+    default: 0.4
+    min: 0.2
+    max: 1.5
+    help: Stage-1 size; stage 2 multiplies by upscale_factor. See the size table in the workflow notes.
+    targets: [{node: "22:9", input: megapixels}]
+  steps:
+    type: int
+    default: 6
+    min: 4
+    max: 30
+    targets: [{node: "22:8", input: value}]
+  seed:
+    type: seed
+    targets: [{node: "16", input: seed}]
+  upscale_seed:
+    type: seed
+    targets: [{node: "103", input: seed}]
+  upscale_factor:
+    type: float
+    default: 1.5
+    min: 1.0
+    max: 2.5
+    targets: [{node: "243", input: mode.scale}]
+  upscale_steps:
+    type: int
+    default: 2
+    min: 1
+    max: 12
+    targets: [{node: "135:360", input: steps}]
+  upscale_denoise:
+    type: float
+    default: 0.4
+    min: 0.1
+    max: 1.0
+    targets: [{node: "135:360", input: denoise}]
+  ref_image_size:
+    type: enum
+    default: max
+    choices: [match, max]
+    help: "'max' gives best identity fidelity but is several times slower."
+    targets: [{node: "5", input: ref_image_size}]
+  target_fps:
+    type: float
+    default: 48
+    help: RIFE interpolation target for the final video.
+    targets: [{node: "168", input: value}]
+  unet:
+    type: enum
+    locked: true
+    default: Minimax-h3_Singularity_ref2va_Pruned_v1.3_int8.safetensors
+    choices_from: {node: "171:4", input: unet_name}
+    targets: [{node: "171:4", input: unet_name}]
+  text_encoder:
+    type: enum
+    locked: true
+    default: qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors
+    choices_from: {node: "171:3", input: clip_name}
+    targets: [{node: "171:3", input: clip_name}]
+  loras:
+    type: pixaroma_loras
+    locked: true
+    help: LoRAs applied to both stages (Pixaroma loader state; edit in Settings).
+    targets: [{node: "554", input: LoraLoaderState}]

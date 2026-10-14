@@ -1,0 +1,44 @@
+# Qwenematics settings. Paths may be absolute or relative to this file.
+
+comfy:
+  comfy_dir: "H:/Stability Matrix/StabilityMatrix-win-x64/Data/Packages/ComfyUI"
+  servers:
+    image:                       # Krea 2 - phase 2: point at the video instance
+      url: http://127.0.0.1:8190
+      launcher: launchers/comfy_image_3090.bat
+      expect_gpu: "RTX 3090"
+    video:                       # MiniMax H3
+      url: http://127.0.0.1:8189
+      launcher: launchers/comfy_video_5090.bat
+      expect_gpu: "RTX 5090"
+
+llm:
+  base_url: http://127.0.0.1:1235
+  model: qwen3.8-27b
+  launcher: "H:/Ninfer Qwen/launch-ninfer-4090.bat"
+  stopper: "H:/Ninfer Qwen/stop-ninfer-4090.bat"
+  media_mode: native_video       # native_video (Ninfer video_url) | frames (timestamped JPEGs)
+  proxy_long_edge: 768
+  proxy_fps: 2
+  reasoning_effort: low          # per-request; none | low | medium | xhigh
+  summarize_at: 0.6              # fraction of the context window
+
+workflows:
+  root: workflows
+  preferred: {krea2: v1, minimax_h3: v251}
+
+iterate:
+  auto: true
+  max_image_iterations: 2
+  max_video_iterations: 1
+  accept_score: 7                # critic score out of 10
+  seedhunt_auto_proceed_s: 10    # 0 = always wait for the user's pick
+
+gpu_sharing:                     # Krea images on the video GPU (5090) while no video is rendering
+  image_on_video_gpu: auto       # auto | off
+  min_backlog: 2                 # borrow a 5090 that has MiniMax loaded only for this many image jobs in flight
+  image_jobs_in_flight: 3        # reference jobs running at once (Qwen writes/critiques while GPUs render)
+  est_seconds: {image: 33, video: 11}   # starting guesses per Krea image; refined from real renders
+# Changes made in the GUI are kept in projects/.harness_state.json and override these.
+
+projects_root: projects

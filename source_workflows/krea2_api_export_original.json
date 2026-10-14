@@ -1,0 +1,171 @@
+{
+  "17": {
+    "inputs": {
+      "text": "",
+      "clip": [
+        "106:13",
+        0
+      ]
+    },
+    "class_type": "CLIPTextEncode",
+    "_meta": {
+      "title": "Negative Prompt"
+    }
+  },
+  "104": {
+    "inputs": {
+      "text": "Cinematic photorealistic still inspired by the church scene from Final Fantasy 7 Remake, set inside a ruined, rain-soaked Midgar church with stone pews, wet cracked floor, broken stained-glass windows, and volumetric god rays cutting through the darkness. Aerith Gainsborough is kneeling on the wet stone floor, long black hair with a pink flower.\n\nStanding before her is Barret Wallace, ",
+      "clip": [
+        "172",
+        1
+      ]
+    },
+    "class_type": "CLIPTextEncode",
+    "_meta": {
+      "title": "PROMPT"
+    }
+  },
+  "138": {
+    "inputs": {
+      "seed": 126595323005467,
+      "steps": 12,
+      "cfg": 1,
+      "sampler_name": "euler",
+      "scheduler": "simple",
+      "denoise": 1,
+      "model": [
+        "172",
+        0
+      ],
+      "positive": [
+        "104",
+        0
+      ],
+      "negative": [
+        "17",
+        0
+      ],
+      "latent_image": [
+        "106:10",
+        0
+      ]
+    },
+    "class_type": "KSampler",
+    "_meta": {
+      "title": "KSampler"
+    }
+  },
+  "139": {
+    "inputs": {
+      "samples": [
+        "138",
+        0
+      ],
+      "vae": [
+        "106:4",
+        0
+      ]
+    },
+    "class_type": "VAEDecode",
+    "_meta": {
+      "title": "VAE Decode"
+    }
+  },
+  "152": {
+    "inputs": {
+      "filename_prefix": "ComfyUI_2026-10-13_13-15-26",
+      "images": [
+        "139",
+        0
+      ]
+    },
+    "class_type": "SaveImage",
+    "_meta": {
+      "title": "Save Image"
+    }
+  },
+  "166": {
+    "inputs": {
+      "aspect_ratio": "16:9 (Widescreen)",
+      "megapixels": 1.4,
+      "multiple": 8
+    },
+    "class_type": "ResolutionSelector",
+    "_meta": {
+      "title": "Resolution Selector"
+    }
+  },
+  "172": {
+    "inputs": {
+      "lora_01": "None",
+      "strength_01": 1,
+      "lora_02": "None",
+      "strength_02": 1,
+      "lora_03": "None",
+      "strength_03": 1,
+      "lora_04": "None",
+      "strength_04": 1,
+      "lora_05": "None",
+      "strength_05": 1,
+      "model": [
+        "106:1",
+        0
+      ],
+      "clip": [
+        "106:13",
+        0
+      ]
+    },
+    "class_type": "LoraLoaderStack",
+    "_meta": {
+      "title": "📚 LoRA Loader Stack - Yaser"
+    }
+  },
+  "106:4": {
+    "inputs": {
+      "vae_name": "qwen_image_vae.safetensors"
+    },
+    "class_type": "VAELoader",
+    "_meta": {
+      "title": "Load VAE"
+    }
+  },
+  "106:10": {
+    "inputs": {
+      "width": [
+        "166",
+        0
+      ],
+      "height": [
+        "166",
+        1
+      ],
+      "batch_size": 1
+    },
+    "class_type": "EmptyLatentImage",
+    "_meta": {
+      "title": "Empty Latent Image"
+    }
+  },
+  "106:13": {
+    "inputs": {
+      "clip_name": "qwen3vl_4b_bf16.safetensors",
+      "type": "krea2",
+      "device": "default"
+    },
+    "class_type": "CLIPLoader",
+    "_meta": {
+      "title": "Load CLIP"
+    }
+  },
+  "106:1": {
+    "inputs": {
+      "unet_name": "krea2_turbo_fp8.safetensors",
+      "weight_dtype": "default"
+    },
+    "class_type": "UNETLoader",
+    "_meta": {
+      "title": "Load Diffusion Model"
+    }
+  }
+}

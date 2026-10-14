@@ -1,0 +1,11 @@
+.venv/
+.pytest_tmp/
+__pycache__/
+projects/
+frontend/node_modules/
+frontend/dist/
+cache/
+.pytest_cache/
+*.log
+# machine-specific; recreate with: python tools/build_logo.py --shortcut
+Qwenematics.lnk

@@ -1,0 +1,633 @@
+{
+ "196": {
+  "inputs": {
+   "attention": "comfy kitchen attention",
+   "model": [
+    "171:4",
+    0
+   ]
+  },
+  "class_type": "ModelAttentionBackend",
+  "_meta": {
+   "title": "Model Attention Backend"
+  }
+ },
+ "177": {
+  "inputs": {
+   "samples": [
+    "125:12",
+    0
+   ],
+   "vae": [
+    "171:1",
+    0
+   ]
+  },
+  "class_type": "VAEDecodeAudio",
+  "_meta": {
+   "title": "VAE Decode Audio"
+  }
+ },
+ "176": {
+  "inputs": {
+   "samples": [
+    "125:12",
+    0
+   ],
+   "vae": [
+    "171:2",
+    0
+   ]
+  },
+  "class_type": "VAEDecode",
+  "_meta": {
+   "title": "VAE Decode"
+  }
+ },
+ "274": {
+  "inputs": {
+   "width": [
+    "22:9",
+    0
+   ],
+   "height": [
+    "22:9",
+    1
+   ],
+   "upscale_method": "lanczos",
+   "keep_proportion": "crop",
+   "pad_color": "0, 0, 0",
+   "crop_position": "center",
+   "divisible_by": 32,
+   "device": "cpu",
+   "image": [
+    "h_pic_1",
+    0
+   ]
+  },
+  "class_type": "ImageResizeKJv2",
+  "_meta": {
+   "title": "Resize Image v2"
+  }
+ },
+ "18": {
+  "inputs": {
+   "frame_rate": 24,
+   "loop_count": 0,
+   "filename_prefix": "harness/preview",
+   "format": "video/h264-mp4",
+   "pingpong": false,
+   "save_output": true,
+   "images": [
+    "176",
+    0
+   ],
+   "audio": [
+    "177",
+    0
+   ]
+  },
+  "class_type": "VHS_VideoCombine",
+  "_meta": {
+   "title": "HARNESS preview video"
+  }
+ },
+ "272": {
+  "inputs": {
+   "frame_idx": 0,
+   "latent": [
+    "520",
+    0
+   ],
+   "audio_vae": [
+    "171:1",
+    0
+   ],
+   "image": [
+    "274",
+    0
+   ],
+   "positive": [
+    "471",
+    0
+   ],
+   "vae": [
+    "171:2",
+    0
+   ]
+  },
+  "class_type": "MiniMaxH3AddGuide",
+  "_meta": {
+   "title": "HARNESS first frame guide"
+  }
+ },
+ "5": {
+  "inputs": {
+   "prompt": "",
+   "width": [
+    "22:9",
+    0
+   ],
+   "height": [
+    "22:9",
+    1
+   ],
+   "length": [
+    "22:24",
+    1
+   ],
+   "ref_image_size": "max",
+   "clip": [
+    "171:3",
+    0
+   ],
+   "audio_vae": [
+    "171:1",
+    0
+   ],
+   "ref_images.ref_image_0": [
+    "h_pic_1",
+    0
+   ],
+   "ref_images.ref_image_1": [
+    "h_pic_2",
+    0
+   ],
+   "ref_images.ref_image_2": [
+    "h_pic_3",
+    0
+   ],
+   "ref_images.ref_image_3": [
+    "h_pic_4",
+    0
+   ],
+   "ref_images.ref_image_4": [
+    "h_pic_5",
+    0
+   ],
+   "ref_images.ref_image_5": [
+    "h_pic_6",
+    0
+   ],
+   "ref_images.ref_image_6": [
+    "h_pic_7",
+    0
+   ],
+   "ref_images.ref_image_7": [
+    "h_pic_8",
+    0
+   ],
+   "ref_images.ref_image_8": [
+    "h_pic_9",
+    0
+   ],
+   "vae": [
+    "171:2",
+    0
+   ]
+  },
+  "class_type": "MiniMaxH3ReferenceToVideo",
+  "_meta": {
+   "title": "HARNESS ref to video"
+  }
+ },
+ "16": {
+  "inputs": {
+   "seed": 176019689538171
+  },
+  "class_type": "easy seed",
+  "_meta": {
+   "title": "Start New Gen! (Click Button)"
+  }
+ },
+ "471": {
+  "inputs": {
+   "any_02": [
+    "5",
+    0
+   ]
+  },
+  "class_type": "Any Switch (rgthree)",
+  "_meta": {
+   "title": "Conditioning Fallback"
+  }
+ },
+ "520": {
+  "inputs": {
+   "any_01": [
+    "5",
+    1
+   ]
+  },
+  "class_type": "Any Switch (rgthree)",
+  "_meta": {
+   "title": "Audio Gen or Normal Gen"
+  }
+ },
+ "542": {
+  "inputs": {
+   "any_02": [
+    "22:7",
+    0
+   ]
+  },
+  "class_type": "Any Switch (rgthree)",
+  "_meta": {
+   "title": "Sigma Selection"
+  }
+ },
+ "554": {
+  "inputs": {
+   "LoraLoaderState": "{\"version\": 1, \"sep\": \", \", \"cacheMode\": \"last\", \"loras\": [{\"name\": \"minimax_h3_DMAD_4step_full_lora_avg_rank_39_bf16.safetensors\", \"on\": true, \"sm\": 1, \"sc\": 1, \"triggers\": []}]}",
+   "model": [
+    "196",
+    0
+   ]
+  },
+  "class_type": "PixaromaLoraLoader",
+  "_meta": {
+   "title": "LoRAs (Applies to both Stage 1 and Stage 2)"
+  }
+ },
+ "555": {
+  "inputs": {
+   "any_02": [
+    "554",
+    0
+   ]
+  },
+  "class_type": "Any Switch (rgthree)",
+  "_meta": {
+   "title": "Model Selection"
+  }
+ },
+ "584": {
+  "inputs": {
+   "predictor": "minimax_h3_r2va_veda_preview_fp8.safetensors",
+   "generated_sparsity": "32",
+   "reference_sparsity": "0%",
+   "full_attention_layers": "",
+   "full_attention_steps": "",
+   "verbose": false,
+   "model": [
+    "555",
+    0
+   ]
+  },
+  "class_type": "VedaSparseAttention",
+  "_meta": {
+   "title": "Veda - Stage 1 (R2VA / configurable)"
+  }
+ },
+ "125:17": {
+  "inputs": {
+   "noise_seed": [
+    "125:126",
+    1
+   ]
+  },
+  "class_type": "RandomNoise",
+  "_meta": {
+   "title": null
+  }
+ },
+ "125:126": {
+  "inputs": {
+   "expression": "a",
+   "variables.a": [
+    "16",
+    0
+   ]
+  },
+  "class_type": "SimpleCalculatorKJ",
+  "_meta": {
+   "title": null
+  }
+ },
+ "125:12": {
+  "inputs": {
+   "noise": [
+    "125:17",
+    0
+   ],
+   "guider": [
+    "125:14",
+    0
+   ],
+   "sampler": [
+    "22:6",
+    0
+   ],
+   "sigmas": [
+    "542",
+    0
+   ],
+   "latent_image": [
+    "520",
+    0
+   ]
+  },
+  "class_type": "SamplerCustomAdvanced",
+  "_meta": {
+   "title": "Sampler #1"
+  }
+ },
+ "125:14": {
+  "inputs": {
+   "model": [
+    "584",
+    0
+   ],
+   "conditioning": [
+    "h_lf_guide",
+    0
+   ]
+  },
+  "class_type": "BasicGuider",
+  "_meta": {
+   "title": "Basic Guider"
+  }
+ },
+ "171:3": {
+  "inputs": {
+   "clip_name": "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors",
+   "type": "minimax",
+   "device": "default"
+  },
+  "class_type": "CLIPLoader",
+  "_meta": {
+   "title": "Load CLIP"
+  }
+ },
+ "171:2": {
+  "inputs": {
+   "vae_name": "minimax_h3_video_vae_int8_convrot.safetensors"
+  },
+  "class_type": "VAELoader",
+  "_meta": {
+   "title": "Load VAE"
+  }
+ },
+ "171:1": {
+  "inputs": {
+   "vae_name": "minimax_h3_audio_vae_fp32.safetensors"
+  },
+  "class_type": "VAELoader",
+  "_meta": {
+   "title": "Load VAE"
+  }
+ },
+ "171:4": {
+  "inputs": {
+   "unet_name": "Minimax-h3_Singularity_ref2va_Pruned_v1.3_int8.safetensors",
+   "weight_dtype": "default"
+  },
+  "class_type": "UNETLoader",
+  "_meta": {
+   "title": "Load Diffusion Model"
+  }
+ },
+ "22:7": {
+  "inputs": {
+   "scheduler": "beta",
+   "steps": [
+    "22:8",
+    0
+   ],
+   "denoise": 1,
+   "model": [
+    "584",
+    0
+   ]
+  },
+  "class_type": "BasicScheduler",
+  "_meta": {
+   "title": null
+  }
+ },
+ "22:8": {
+  "inputs": {
+   "value": 6
+  },
+  "class_type": "INTConstant",
+  "_meta": {
+   "title": "TOTAL STEPS"
+  }
+ },
+ "22:6": {
+  "inputs": {
+   "sampler_name": "er_sde"
+  },
+  "class_type": "KSamplerSelect",
+  "_meta": {
+   "title": null
+  }
+ },
+ "22:9": {
+  "inputs": {
+   "aspect_ratio": "16:9 (Widescreen)",
+   "megapixels": 0.4,
+   "multiple": 32
+  },
+  "class_type": "ResolutionSelector",
+  "_meta": {
+   "title": "Resolution Selector (Size)"
+  }
+ },
+ "22:23": {
+  "inputs": {
+   "value": 10
+  },
+  "class_type": "PrimitiveFloat",
+  "_meta": {
+   "title": "Video Length (seconds)"
+  }
+ },
+ "22:24": {
+  "inputs": {
+   "expression": "max(5, round(a * 24)) + (5 - (max(5, round(a * 24)) % 17)) % 17",
+   "values.a": [
+    "22:23",
+    0
+   ]
+  },
+  "class_type": "ComfyMathExpression",
+  "_meta": {
+   "title": "Math Expression"
+  }
+ },
+ "h_pic_1": {
+  "inputs": {
+   "image": "PLACEHOLDER"
+  },
+  "class_type": "LoadImage",
+  "_meta": {
+   "title": "HARNESS pic 1"
+  }
+ },
+ "h_pic_2": {
+  "inputs": {
+   "image": "PLACEHOLDER"
+  },
+  "class_type": "LoadImage",
+  "_meta": {
+   "title": "HARNESS pic 2"
+  }
+ },
+ "h_pic_3": {
+  "inputs": {
+   "image": "PLACEHOLDER"
+  },
+  "class_type": "LoadImage",
+  "_meta": {
+   "title": "HARNESS pic 3"
+  }
+ },
+ "h_pic_4": {
+  "inputs": {
+   "image": "PLACEHOLDER"
+  },
+  "class_type": "LoadImage",
+  "_meta": {
+   "title": "HARNESS pic 4"
+  }
+ },
+ "h_pic_5": {
+  "inputs": {
+   "image": "PLACEHOLDER"
+  },
+  "class_type": "LoadImage",
+  "_meta": {
+   "title": "HARNESS pic 5"
+  }
+ },
+ "h_pic_6": {
+  "inputs": {
+   "image": "PLACEHOLDER"
+  },
+  "class_type": "LoadImage",
+  "_meta": {
+   "title": "HARNESS pic 6"
+  }
+ },
+ "h_pic_7": {
+  "inputs": {
+   "image": "PLACEHOLDER"
+  },
+  "class_type": "LoadImage",
+  "_meta": {
+   "title": "HARNESS pic 7"
+  }
+ },
+ "h_pic_8": {
+  "inputs": {
+   "image": "PLACEHOLDER"
+  },
+  "class_type": "LoadImage",
+  "_meta": {
+   "title": "HARNESS pic 8"
+  }
+ },
+ "h_pic_9": {
+  "inputs": {
+   "image": "PLACEHOLDER"
+  },
+  "class_type": "LoadImage",
+  "_meta": {
+   "title": "HARNESS pic 9"
+  }
+ },
+ "h_lf_resize": {
+  "inputs": {
+   "width": [
+    "22:9",
+    0
+   ],
+   "height": [
+    "22:9",
+    1
+   ],
+   "upscale_method": "lanczos",
+   "keep_proportion": "crop",
+   "pad_color": "0, 0, 0",
+   "crop_position": "center",
+   "divisible_by": 32,
+   "device": "cpu",
+   "image": [
+    "h_pic_2",
+    0
+   ]
+  },
+  "class_type": "ImageResizeKJv2",
+  "_meta": {
+   "title": "HARNESS last frame resize"
+  }
+ },
+ "h_lf_guide": {
+  "inputs": {
+   "latent": [
+    "520",
+    0
+   ],
+   "audio_vae": [
+    "171:1",
+    0
+   ],
+   "vae": [
+    "171:2",
+    0
+   ],
+   "positive": [
+    "272",
+    0
+   ],
+   "image": [
+    "h_lf_resize",
+    0
+   ],
+   "frame_idx": -1
+  },
+  "class_type": "MiniMaxH3AddGuide",
+  "_meta": {
+   "title": "HARNESS last frame guide"
+  }
+ },
+ "h_sep": {
+  "inputs": {
+   "av_latent": [
+    "125:12",
+    1
+   ]
+  },
+  "class_type": "LTXVSeparateAVLatent",
+  "_meta": {
+   "title": "HARNESS separate AV"
+  }
+ },
+ "h_save_video_latent": {
+  "inputs": {
+   "samples": [
+    "h_sep",
+    0
+   ],
+   "filename_prefix": "harness/latent_v"
+  },
+  "class_type": "SaveLatent",
+  "_meta": {
+   "title": "HARNESS save video latent"
+  }
+ },
+ "h_save_audio_latent": {
+  "inputs": {
+   "samples": [
+    "h_sep",
+    1
+   ],
+   "filename_prefix": "harness/latent_a"
+  },
+  "class_type": "SaveLatent",
+  "_meta": {
+   "title": "HARNESS save audio latent"
+  }
+ }
+}

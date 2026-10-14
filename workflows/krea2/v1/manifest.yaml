@@ -1,0 +1,85 @@
+# Krea 2 Turbo text-to-image, harness copy of "krea2Simple_fixed jakes version".
+# Built by tools/build_krea2_v1.py from source_ui.json.
+id: krea2
+version: v1
+label: Krea 2 Turbo - text to image
+kind: image
+server: image
+prompt_guide: krea2            # prompts/krea_writer.md
+
+graphs:
+  t2i: t2i.api.json
+
+outputs:                        # per graph: output name -> node
+  t2i:
+    image: {node: "152", kind: images}
+
+# A param is a semantic knob. `targets` say where it lands; a target whose graph
+# lacks the node is skipped, so one knob can span several graphs.
+#   qwen: true   -> Qwen may set it (keep this list short)
+#   locked: true -> only the user may change it, from Settings
+params:
+  prompt:
+    type: text
+    qwen: true
+    targets: [{node: h_prompt, input: text}]
+  ref_kind:                     # Qwen picks a purpose, the harness picks the frame
+    type: enum
+    qwen: true
+    default: character
+    choices: [character, character_closeup, establishing, location, prop, first_frame]
+    sets:
+      character:          {aspect_ratio: "9:16 (Portrait Widescreen)"}
+      character_closeup:  {aspect_ratio: "3:4 (Portrait Standard)"}
+      establishing:       {aspect_ratio: "16:9 (Widescreen)"}
+      location:           {aspect_ratio: "16:9 (Widescreen)"}
+      prop:               {aspect_ratio: "1:1 (Square)"}
+      first_frame:        {aspect_ratio: "@video_aspect"}   # follows the video's aspect
+  aspect_ratio:
+    type: enum
+    choices_from: {node: "166", input: aspect_ratio}
+    default: "16:9 (Widescreen)"
+    targets: [{node: "166", input: aspect_ratio}]
+  megapixels:
+    type: float
+    default: 1.4
+    min: 0.5
+    max: 4.0
+    targets: [{node: "166", input: megapixels}]
+  weight_strength:
+    type: float
+    default: 1.0
+    min: 0.0
+    max: 4.0
+    help: Global multiplier on (word:weight) effects - lower if images break up.
+    targets: [{node: h_prompt, input: strength}]
+  seed:
+    type: seed
+    targets: [{node: "138", input: seed}]
+  steps:
+    type: int
+    default: 12
+    min: 4
+    max: 30
+    targets: [{node: "138", input: steps}]
+  sampler:
+    type: enum
+    default: euler
+    choices_from: {node: "138", input: sampler_name}
+    targets: [{node: "138", input: sampler_name}]
+  scheduler:
+    type: enum
+    default: simple
+    choices_from: {node: "138", input: scheduler}
+    targets: [{node: "138", input: scheduler}]
+  unet:
+    type: enum
+    locked: true
+    default: krea2_turbo_fp8.safetensors
+    choices_from: {node: "106:1", input: unet_name}
+    targets: [{node: "106:1", input: unet_name}]
+  lora_1: {type: lora, default: "None", targets: [{node: "172", input: lora_01, strength: strength_01}]}
+  lora_2: {type: lora, default: "None", targets: [{node: "172", input: lora_02, strength: strength_02}]}
+  lora_3: {type: lora, default: "None", targets: [{node: "172", input: lora_03, strength: strength_03}]}
+  lora_4: {type: lora, default: "None", targets: [{node: "172", input: lora_04, strength: strength_04}]}
+  lora_5: {type: lora, default: "None", targets: [{node: "172", input: lora_05, strength: strength_05}]}

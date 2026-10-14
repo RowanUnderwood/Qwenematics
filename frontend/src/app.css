@@ -1,0 +1,39 @@
+:root {
+  --bg: #121417; --panel: #1a1d22; --panel2: #22262d; --line: #2e333b; --text: #e6e8eb;
+  --muted: #9aa3ad; --accent: #6aa8ff; --accent2: #2f6fd1; --ok: #4cc38a; --warn: #f0b44c; --bad: #ef6461;
+  --radius: 8px; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body, #app { height: 100%; margin: 0; }
+body { background: var(--bg); color: var(--text); font: 14px/1.45 system-ui, "Segoe UI", sans-serif; }
+button { background: var(--panel2); color: var(--text); border: 1px solid var(--line); border-radius: 6px;
+  padding: 5px 10px; cursor: pointer; font: inherit; }
+button:hover { border-color: var(--accent); }
+button.primary { background: var(--accent2); border-color: var(--accent2); }
+button.danger { border-color: #6a2d2c; color: #ffb4b2; }
+button:disabled { opacity: .5; cursor: default; }
+button.small { padding: 2px 7px; font-size: 12px; }
+input, textarea, select { background: #0f1114; color: var(--text); border: 1px solid var(--line); border-radius: 6px;
+  padding: 6px 8px; font: inherit; }
+textarea { resize: vertical; width: 100%; }
+input:focus, textarea:focus, select:focus { outline: 1px solid var(--accent); }
+h2 { font-size: 16px; margin: 0 0 10px; }
+h3 { font-size: 14px; margin: 14px 0 8px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+.muted { color: var(--muted); }
+.row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.col { display: flex; flex-direction: column; gap: 8px; }
+.grow { flex: 1; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 10px; }
+.badge { display: inline-block; padding: 1px 7px; border-radius: 10px; font-size: 11px; background: var(--panel2);
+  border: 1px solid var(--line); color: var(--muted); }
+.badge.ok { color: var(--ok); border-color: #285c43; }
+.badge.warn { color: var(--warn); border-color: #6b5222; }
+.badge.bad { color: var(--bad); border-color: #6a2d2c; }
+.scroll { overflow: auto; }
+.pad { padding: 14px; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; }
+label.f { display: flex; flex-direction: column; gap: 3px; font-size: 12px; color: var(--muted); }
+pre { white-space: pre-wrap; word-break: break-word; background: #0f1114; padding: 8px; border-radius: 6px;
+  font-size: 12px; max-height: 300px; overflow: auto; margin: 4px 0; }
+.progress { height: 4px; background: var(--panel2); border-radius: 2px; overflow: hidden; }
+.progress > div { height: 100%; background: var(--accent); transition: width .3s; }

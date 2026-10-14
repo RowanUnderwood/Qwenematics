@@ -1,0 +1,122 @@
+{
+ "Standing Neutral": {
+  "number": 1,
+  "block": "leg_position: Feet parallel at shoulder width, knees naturally extended with a slight relaxed bend.\narm_position: Arms resting comfortably alongside the torso with relaxed shoulders.\nhand_position: Fingers naturally curved with palms facing inward toward the thighs.\ntorso_orientation: Fully upright with a neutral spine, open chest, and level shoulders.\nhead_orientation: Head centered above the spine with the chin parallel to the ground.\nweight_distribution: Evenly distributed between both legs.\ncenter_of_gravity: Centered between both feet.\nmuscle_tension: Minimal activation maintaining comfortable posture.\nmovement_quality: Still, relaxed, balanced, and natural.\nbalance: Highly stable with symmetrical support.\nsilhouette: Vertical, symmetrical, clean body outline."
+ },
+ "Contrapposto": {
+  "number": 2,
+  "block": "leg_position: One leg bears most of the body weight while the opposite leg relaxes with a slightly bent knee.\narm_position: Arms hang naturally with slight asymmetry following the body's weight shift.\nhand_position: Relaxed fingers with one hand often slightly closer to the hip.\ntorso_orientation: Spine forms a gentle S-curve with hips and shoulders counterbalancing each other.\nhead_orientation: Head aligned naturally with a subtle relaxed tilt.\nweight_distribution: Approximately 80% on the supporting leg.\ncenter_of_gravity: Positioned above the supporting foot.\nmuscle_tension: Moderate in the supporting leg, minimal elsewhere.\nmovement_quality: Elegant, effortless, relaxed, and classical.\nbalance: Stable despite asymmetrical stance.\nsilhouette: Flowing S-shaped silhouette emphasizing natural body curves."
+ },
+ "Power Stance": {
+  "number": 3,
+  "block": "leg_position: Feet shoulder-width apart with knees extended but not locked.\narm_position: Arms relaxed beside the body or elbows bent outward when hands rest on the hips.\nhand_position: Relaxed open hands or firmly placed on the hips.\ntorso_orientation: Chest expanded, shoulders back, spine elongated and upright.\nhead_orientation: Chin slightly elevated with the head centered.\nweight_distribution: Evenly shared between both legs.\ncenter_of_gravity: Low and centered between the feet.\nmuscle_tension: Moderate activation throughout the entire body.\nmovement_quality: Controlled, grounded, deliberate, and confident.\nbalance: Extremely stable.\nsilhouette: Broad triangular silhouette emphasizing shoulders and chest."
+ },
+ "Attention Stance": {
+  "number": 4,
+  "block": "leg_position: Feet together with knees fully extended and aligned.\narm_position: Arms straight alongside the torso without movement.\nhand_position: Fingers fully extended and aligned with the thighs.\ntorso_orientation: Perfectly vertical with military posture.\nhead_orientation: Straight ahead with chin level.\nweight_distribution: Equal across both feet.\ncenter_of_gravity: Perfectly centered.\nmuscle_tension: High postural control throughout the body.\nmovement_quality: Completely still and disciplined.\nbalance: Maximum static stability.\nsilhouette: Rigid, vertical, symmetrical profile."
+ },
+ "Relaxed Standing": {
+  "number": 5,
+  "block": "leg_position: One knee slightly relaxed with weight shifted naturally onto one leg.\narm_position: Arms hanging loosely with relaxed shoulders.\nhand_position: Loose fingers with natural curvature.\ntorso_orientation: Upright with slight natural relaxation of the spine.\nhead_orientation: Neutral with occasional subtle tilt.\nweight_distribution: Primarily on one leg while the other remains relaxed.\ncenter_of_gravity: Shifted toward the supporting leg.\nmuscle_tension: Low overall muscle engagement.\nmovement_quality: Casual, effortless, and comfortable.\nbalance: Stable with slight asymmetry.\nsilhouette: Soft asymmetrical outline."
+ },
+ "Hands in Pockets": {
+  "number": 6,
+  "block": "leg_position: Feet comfortably apart with one leg often carrying more weight.\narm_position: Elbows bent naturally with forearms inside pockets.\nhand_position: One or both hands inserted into pockets.\ntorso_orientation: Upright with relaxed shoulders and chest.\nhead_orientation: Neutral or slightly tilted.\nweight_distribution: Usually favors one leg.\ncenter_of_gravity: Shifted toward the supporting hip.\nmuscle_tension: Very low.\nmovement_quality: Casual, relaxed, effortless.\nbalance: Stable.\nsilhouette: Relaxed silhouette with softened arm definition."
+ },
+ "Crossed Arms": {
+  "number": 7,
+  "block": "leg_position: Stable standing stance with feet shoulder-width apart.\narm_position: Both forearms crossed firmly across the chest.\nhand_position: Hands resting beneath the opposite upper arm.\ntorso_orientation: Upright with shoulders slightly rounded forward.\nhead_orientation: Chin level or slightly raised.\nweight_distribution: Balanced or slightly shifted onto one leg.\ncenter_of_gravity: Centered through the torso.\nmuscle_tension: Moderate in the shoulders and forearms.\nmovement_quality: Controlled and reserved.\nbalance: Stable.\nsilhouette: Compact upper-body silhouette emphasizing the crossed arms."
+ },
+ "Hands on Hips": {
+  "number": 8,
+  "block": "leg_position: Feet shoulder-width apart with knees relaxed.\narm_position: Elbows bent outward symmetrically.\nhand_position: Palms resting firmly on the hips.\ntorso_orientation: Chest expanded with shoulders open.\nhead_orientation: Facing forward with chin slightly elevated.\nweight_distribution: Evenly balanced.\ncenter_of_gravity: Centered over both feet.\nmuscle_tension: Moderate core engagement.\nmovement_quality: Assertive, controlled, and stable.\nbalance: Very stable.\nsilhouette: Wide silhouette emphasizing elbows and shoulders."
+ },
+ "One Hand on Hip": {
+  "number": 9,
+  "block": "leg_position: Weight primarily on one leg with the opposite hip slightly elevated.\narm_position: One elbow bent outward while the opposite arm hangs naturally.\nhand_position: One hand resting on the hip, the other relaxed.\ntorso_orientation: Slight asymmetrical torso curve following the hip shift.\nhead_orientation: Slight tilt toward or away from the supporting side.\nweight_distribution: Mostly on one leg.\ncenter_of_gravity: Above the supporting foot.\nmuscle_tension: Moderate in the supporting leg and core.\nmovement_quality: Elegant, fashionable, relaxed.\nbalance: Stable with asymmetrical posture.\nsilhouette: Dynamic editorial silhouette emphasizing hip line."
+ },
+ "Arms Behind Back": {
+  "number": 10,
+  "block": "leg_position: Feet comfortably apart with knees relaxed.\narm_position: Both arms positioned behind the torso with elbows naturally bent.\nhand_position: Hands clasped together or one hand holding the opposite wrist.\ntorso_orientation: Upright with an open chest and shoulders gently pulled back.\nhead_orientation: Neutral with calm forward gaze.\nweight_distribution: Evenly balanced across both legs.\ncenter_of_gravity: Centered over both feet.\nmuscle_tension: Low to moderate around the shoulders.\nmovement_quality: Calm, composed, deliberate.\nbalance: Stable.\nsilhouette: Clean frontal silhouette with concealed arm profile."
+ },
+ "Walking Forward": {
+  "number": 11,
+  "block": "leg_position: One leg stepping forward while the trailing leg pushes off the ground, knees moving naturally through the gait cycle.\narm_position: Arms swing naturally opposite to the legs with relaxed shoulders.\nhand_position: Fingers loosely extended with relaxed natural curvature.\ntorso_orientation: Upright with a slight forward inclination following the direction of travel.\nhead_orientation: Head facing forward with chin level and eyes directed toward the destination.\nweight_distribution: Constantly transferring from the rear leg to the leading leg.\ncenter_of_gravity: Moving forward between the feet during each step.\nmuscle_tension: Moderate activation in the legs and core with relaxed upper body.\nmovement_quality: Smooth, rhythmic, purposeful, and continuous.\nbalance: Dynamic balance maintained throughout each stride.\nsilhouette: Strong forward-leading silhouette emphasizing motion."
+ },
+ "Walking Away": {
+  "number": 12,
+  "block": "leg_position: One leg advancing while viewed from behind, natural stride length maintained.\narm_position: Arms swing freely in opposition to the legs.\nhand_position: Hands relaxed with fingers naturally curved.\ntorso_orientation: Upright with subtle forward momentum.\nhead_orientation: Facing away from the viewer with neck naturally aligned.\nweight_distribution: Continuously shifting between each supporting foot.\ncenter_of_gravity: Progressively moving forward with each stride.\nmuscle_tension: Moderate lower-body activation with relaxed shoulders.\nmovement_quality: Natural, fluid, and continuous.\nbalance: Stable dynamic gait.\nsilhouette: Tapered silhouette emphasizing distance and departure."
+ },
+ "Running Sprint": {
+  "number": 13,
+  "block": "leg_position: One leg drives forward while the opposite extends explosively behind the body.\narm_position: Elbows bent approximately ninety degrees with powerful forward and backward drive.\nhand_position: Hands relaxed with lightly curled fingers.\ntorso_orientation: Leaning forward aggressively from the ankles with stable core engagement.\nhead_orientation: Facing directly toward the running direction with chin neutral.\nweight_distribution: Supported by a single foot during each ground contact.\ncenter_of_gravity: Positioned ahead of the supporting foot to maximize acceleration.\nmuscle_tension: Very high throughout the lower body and core.\nmovement_quality: Explosive, rapid, aggressive, and powerful.\nbalance: Dynamic athletic balance.\nsilhouette: Elongated forward-leaning silhouette emphasizing speed."
+ },
+ "Jogging": {
+  "number": 14,
+  "block": "leg_position: Moderate stride length with relaxed knee lift and soft foot placement.\narm_position: Elbows bent comfortably with relaxed rhythmic swing.\nhand_position: Loose hands without gripping tension.\ntorso_orientation: Upright with slight forward inclination.\nhead_orientation: Neutral with steady forward gaze.\nweight_distribution: Smooth transfer between each step.\ncenter_of_gravity: Stable and continuously moving forward.\nmuscle_tension: Moderate lower-body activation with relaxed upper body.\nmovement_quality: Smooth, rhythmic, sustainable, and relaxed.\nbalance: Stable during continuous movement.\nsilhouette: Balanced athletic silhouette with flowing motion."
+ },
+ "Striding Confidently": {
+  "number": 15,
+  "block": "leg_position: Long deliberate steps with full extension of each stride.\narm_position: Natural arm swing synchronized with confident gait.\nhand_position: Relaxed hands with controlled movement.\ntorso_orientation: Chest open with upright spine and shoulders back.\nhead_orientation: Chin slightly elevated with direct forward gaze.\nweight_distribution: Firm transfer onto each leading foot.\ncenter_of_gravity: Stable and confidently projected forward.\nmuscle_tension: Moderate overall body activation emphasizing posture.\nmovement_quality: Deliberate, elegant, powerful, and controlled.\nbalance: Highly stable while moving.\nsilhouette: Tall, commanding silhouette with extended stride."
+ },
+ "Crouching": {
+  "number": 16,
+  "block": "leg_position: Deep knee flexion with feet planted firmly beneath the body.\narm_position: Arms positioned naturally in front or beside the knees for balance.\nhand_position: Hands open and ready for support if needed.\ntorso_orientation: Leaning slightly forward while maintaining spinal alignment.\nhead_orientation: Looking forward or slightly upward depending on the objective.\nweight_distribution: Evenly shared across both feet.\ncenter_of_gravity: Lowered close to the ground between the feet.\nmuscle_tension: Moderate to high activation in the legs and core.\nmovement_quality: Controlled, cautious, ready for movement.\nbalance: Stable low center of gravity.\nsilhouette: Compact low-profile silhouette."
+ },
+ "Deep Squat": {
+  "number": 17,
+  "block": "leg_position: Knees fully flexed with hips lowered below knee level and feet flat.\narm_position: Arms resting naturally or extended slightly forward for balance.\nhand_position: Relaxed open hands.\ntorso_orientation: Slight forward inclination with neutral spine maintained.\nhead_orientation: Facing forward with relaxed neck.\nweight_distribution: Evenly distributed through both feet.\ncenter_of_gravity: Very low and centered.\nmuscle_tension: High lower-body activation with stable core.\nmovement_quality: Stable, grounded, controlled.\nbalance: Excellent low-position stability.\nsilhouette: Compact symmetrical silhouette close to the ground."
+ },
+ "Kneeling One Knee": {
+  "number": 18,
+  "block": "leg_position: One knee resting on the ground while the opposite foot remains planted with the knee bent.\narm_position: Arms relaxed beside the torso or resting naturally on the raised thigh.\nhand_position: Relaxed open hands.\ntorso_orientation: Upright with open chest and straight spine.\nhead_orientation: Facing forward or slightly upward.\nweight_distribution: Shared between the grounded knee and planted foot.\ncenter_of_gravity: Low and centered between both support points.\nmuscle_tension: Moderate activation maintaining stability.\nmovement_quality: Calm, respectful, and controlled.\nbalance: Stable with three points of support.\nsilhouette: Strong asymmetrical silhouette emphasizing humility or readiness."
+ },
+ "Kneeling Both Knees": {
+  "number": 19,
+  "block": "leg_position: Both knees resting on the ground with lower legs aligned beneath the body.\narm_position: Arms relaxed beside the torso or resting on the thighs.\nhand_position: Hands resting naturally on the thighs or joined together.\ntorso_orientation: Upright with relaxed shoulders and neutral spine.\nhead_orientation: Neutral or slightly lowered.\nweight_distribution: Evenly distributed across both knees and lower legs.\ncenter_of_gravity: Centered directly above the knees.\nmuscle_tension: Low to moderate postural activation.\nmovement_quality: Still, composed, and balanced.\nbalance: Highly stable.\nsilhouette: Symmetrical vertical silhouette supported by both knees."
+ },
+ "Sitting Upright": {
+  "number": 20,
+  "block": "leg_position: Both feet flat on the floor with knees bent approximately ninety degrees.\narm_position: Arms resting comfortably beside the torso or on the thighs.\nhand_position: Hands relaxed on the lap or thighs.\ntorso_orientation: Straight spine with open chest and neutral shoulders.\nhead_orientation: Head centered with chin level.\nweight_distribution: Evenly distributed across the sitting bones.\ncenter_of_gravity: Centered over the pelvis.\nmuscle_tension: Low to moderate core activation maintaining posture.\nmovement_quality: Still, attentive, and composed.\nbalance: Stable seated posture.\nsilhouette: Clean vertical seated silhouette emphasizing posture."
+ },
+ "Pointing": {
+  "number": 41,
+  "block": "leg_position: Feet shoulder-width apart with knees naturally relaxed.\narm_position: One arm fully extended toward the target while the opposite arm remains relaxed beside the body.\nhand_position: Index finger extended with remaining fingers gently curled.\ntorso_orientation: Slightly rotated toward the pointing direction with an upright spine.\nhead_orientation: Eyes aligned with the pointing direction.\nweight_distribution: Slightly shifted toward the leading side.\ncenter_of_gravity: Centered with a subtle directional shift.\nmuscle_tension: Moderate activation through the extended arm and core.\nmovement_quality: Intentional, direct, and assertive.\nbalance: Stable.\nsilhouette: Strong directional silhouette emphasizing the extended arm."
+ },
+ "Reaching Forward": {
+  "number": 42,
+  "block": "leg_position: Feet staggered naturally with one foot slightly ahead.\narm_position: One or both arms extended toward an object beyond immediate reach.\nhand_position: Fingers fully extended and slightly separated in preparation to grasp.\ntorso_orientation: Torso leaning forward from the hips while maintaining spinal alignment.\nhead_orientation: Eyes fixed on the target.\nweight_distribution: Shifted toward the front foot.\ncenter_of_gravity: Projected forward beyond the pelvis.\nmuscle_tension: Moderate activation through shoulders, core, and legs.\nmovement_quality: Purposeful, controlled, and exploratory.\nbalance: Stable with forward reach.\nsilhouette: Elongated forward-reaching silhouette."
+ },
+ "Reaching Upward": {
+  "number": 43,
+  "block": "leg_position: Feet shoulder-width apart with knees softly extended.\narm_position: One or both arms fully extended overhead.\nhand_position: Fingers reaching upward with maximum extension.\ntorso_orientation: Spine elongated vertically with chest lifted.\nhead_orientation: Looking upward toward the reaching hand.\nweight_distribution: Balanced over both feet.\ncenter_of_gravity: Slightly elevated through full-body extension.\nmuscle_tension: Moderate activation throughout the body.\nmovement_quality: Aspirational, elongated, and graceful.\nbalance: Stable.\nsilhouette: Tall vertical silhouette emphasizing upward movement."
+ },
+ "Reaching Sideways": {
+  "number": 44,
+  "block": "leg_position: Feet wider than shoulder width for stability.\narm_position: One arm fully extended laterally while the opposite remains relaxed.\nhand_position: Open hand with naturally extended fingers.\ntorso_orientation: Slight lateral rotation or side bend.\nhead_orientation: Eyes following the reaching hand.\nweight_distribution: Shifted toward the supporting leg.\ncenter_of_gravity: Laterally displaced while remaining balanced.\nmuscle_tension: Moderate activation through the side body and shoulders.\nmovement_quality: Fluid, exploratory, and expansive.\nbalance: Stable.\nsilhouette: Wide asymmetrical silhouette emphasizing horizontal reach."
+ },
+ "Holding Object": {
+  "number": 45,
+  "block": "leg_position: Stable stance with feet shoulder-width apart.\narm_position: Arms bent comfortably while supporting the object close to the torso.\nhand_position: Hands securely wrapped around the object.\ntorso_orientation: Upright with slight stabilization from the core.\nhead_orientation: Neutral or focused on the object.\nweight_distribution: Evenly balanced unless compensating for object weight.\ncenter_of_gravity: Centered close to the body's midline.\nmuscle_tension: Moderate depending on object weight.\nmovement_quality: Controlled, careful, and steady.\nbalance: Stable.\nsilhouette: Compact silhouette centered around the object."
+ },
+ "Carrying Over Shoulder": {
+  "number": 46,
+  "block": "leg_position: Stable walking or standing stance.\narm_position: One arm supports the object over the shoulder while the opposite arm balances naturally.\nhand_position: Firm grip securing the object.\ntorso_orientation: Slight lean opposite the carried load.\nhead_orientation: Neutral with forward gaze.\nweight_distribution: Shifted slightly toward the supporting side.\ncenter_of_gravity: Offset toward the load.\nmuscle_tension: Moderate to high in shoulders, back, and legs.\nmovement_quality: Strong, deliberate, and efficient.\nbalance: Stable despite asymmetrical load.\nsilhouette: Asymmetrical silhouette emphasizing the elevated object."
+ },
+ "Carrying in Arms": {
+  "number": 47,
+  "block": "leg_position: Stable stance with feet comfortably apart.\narm_position: Both arms wrapped securely around the carried object.\nhand_position: Hands supporting the object's weight from below and the sides.\ntorso_orientation: Upright with slight backward compensation.\nhead_orientation: Looking forward or toward the carried subject.\nweight_distribution: Evenly distributed with slight backward compensation.\ncenter_of_gravity: Shifted toward the carried load.\nmuscle_tension: Moderate activation through arms, shoulders, and core.\nmovement_quality: Careful, protective, and controlled.\nbalance: Stable.\nsilhouette: Rounded silhouette centered around the carried object."
+ },
+ "Lifting": {
+  "number": 48,
+  "block": "leg_position: Feet shoulder-width apart with knees bent and hips lowered.\narm_position: Arms extended downward before initiating the lift.\nhand_position: Secure grip around the object.\ntorso_orientation: Neutral spine with forward hip hinge.\nhead_orientation: Looking slightly forward to maintain spinal alignment.\nweight_distribution: Even across both feet.\ncenter_of_gravity: Low and centered beneath the load.\nmuscle_tension: High activation throughout the legs, core, and back.\nmovement_quality: Powerful, controlled, and coordinated.\nbalance: Stable lifting posture.\nsilhouette: Compact, grounded silhouette emphasizing strength."
+ },
+ "Pushing": {
+  "number": 49,
+  "block": "leg_position: One foot positioned forward with knees slightly bent.\narm_position: Both arms extended toward the object with elbows nearly straight.\nhand_position: Palms pressing firmly against the object.\ntorso_orientation: Leaning forward from the ankles with strong core engagement.\nhead_orientation: Eyes directed toward the object being pushed.\nweight_distribution: Primarily over the front foot.\ncenter_of_gravity: Shifted forward beyond the pelvis.\nmuscle_tension: High activation through the entire body.\nmovement_quality: Forceful, deliberate, and sustained.\nbalance: Stable through staggered stance.\nsilhouette: Forward-driving silhouette emphasizing exertion."
+ },
+ "Pulling": {
+  "number": 50,
+  "block": "leg_position: One foot positioned behind the other for leverage.\narm_position: Elbows bent while drawing the object toward the torso.\nhand_position: Firm gripping position.\ntorso_orientation: Slight backward lean with engaged core.\nhead_orientation: Looking toward the object being pulled.\nweight_distribution: Shifted toward the rear supporting leg.\ncenter_of_gravity: Positioned behind the object to maximize leverage.\nmuscle_tension: High activation in arms, back, and legs.\nmovement_quality: Powerful, controlled, and resistant.\nbalance: Stable through rear-weighted stance.\nsilhouette: Dynamic backward-leaning silhouette emphasizing pulling force."
+ }
+}
