@@ -17,7 +17,8 @@ Ports and GPUs live in `settings.yaml`. The launchers set `CUDA_DEVICE_ORDER=PCI
 ### GPU sharing for images
 While no video is rendering, reference images also use the 5090. Krea takes about 11 s per image there, against about 33 s on the 3090 (`tools/bench_gpu_split.py`, results in `projects/_bench/results.md`).
 - **Video comes first.** A shot render waits only for the image already on the 5090, which is then emptied for MiniMax.
-- **Switching back to MiniMax costs about 26 s,** so a single image stays on the 3090 unless Krea is already loaded on the 5090.
+- **Switching back to MiniMax costs about 26 s,** so in a full project a single image stays on the 3090 unless Krea is already loaded on the 5090. Image-only projects never switch back, so even a single image uses the 5090.
+- **The 3090 joins in from about 4 images,** when the images left would keep the 5090 busy for longer than the 3090 takes to render one. Shorter batches wait for the 5090.
 - **Several reference jobs run at once** (`image_jobs_in_flight`, default 3), so Qwen writes and critiques while the GPUs render. Chat replies can wait behind one or two of those Qwen calls.
 - **Settings tab, "GPU sharing for images"** switches this off or tunes it. Changes made there are kept in `projects/.harness_state.json` and override the defaults in `settings.yaml` → `gpu_sharing`.
 
@@ -32,7 +33,7 @@ Tick **Image only** when creating a project if you just want pictures. It has **
 - **Named characters:** Qwen often doesn't know what a character from a game or film really looks like, and Krea doesn't either. Describe the look you want.
 - **Variations:** these re-render the current prompt with new seeds. Each one arrives as a new version; press **use** on the one you want. **Clean up unused files** in Settings removes the versions you didn't pick.
 - **Consistency:** there is no story bible, so Qwen's prompt writer gets a short list of your existing images and reuses their wording for recurring subjects.
-- **Services:** only the image server and Qwen are needed. The video server is optional, and images borrow its GPU when it's running.
+- **Services:** only the image server and Qwen are needed. The video server is optional, but images render about three times faster on its GPU when it's running.
 - **Upgrading:** **Upgrade to full project** in Settings adds shots, the timeline, the bible and video. It can't be undone.
 
 ## How a clip gets made

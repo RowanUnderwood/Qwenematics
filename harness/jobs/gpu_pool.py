@@ -8,10 +8,11 @@ Rules
 - Video first: while a shot job holds or waits for the video slot, no image starts on the
   5090; the shot waits only for the image already rendering there.
 - Borrow the 5090 when it already has Krea loaded, or when at least `min_backlog` image
-  jobs are in flight (one image alone isn't worth the switch back).
-- Among free GPUs, a waiting image goes where it is expected to finish first, from running
-  averages of each GPU's render time (so a short batch queues for the fast 5090 rather than
-  taking the slow 3090).
+  jobs are in flight (one image alone isn't worth the switch back; an image-only project
+  never switches back, so its threshold is 1).
+- The 3090 joins in once the images left would keep the 5090 busy for longer than the 3090
+  takes to render one, from running averages of each GPU's render time. That's about 4
+  images, so a short batch queues for the fast 5090 rather than taking the slow 3090.
 """
 from __future__ import annotations
 
@@ -31,10 +32,12 @@ class GpuPool:
                  can_borrow: Callable[[], bool],
                  backlog: Callable[[], int],
                  min_backlog: Callable[[], int] = lambda: 2,
+                 queued: Callable[[], int] = lambda: 0,
                  est: dict[str, float] | None = None,
                  on_change: Callable[[], None] = lambda: None):
         self.I, self.V = image, video
         self._free, self._can_borrow, self._backlog, self._min_backlog = free, can_borrow, backlog, min_backlog
+        self._queued = queued
         self.est = {image: 33.0, video: 11.0, **(est or {})}       # running average seconds per image
         self.busy = {image: False, video: False}
         self.started = {image: 0.0, video: 0.0}
@@ -77,12 +80,13 @@ class GpuPool:
             if not borrow:
                 self._take(self._waiters.pop(0), self.I)
                 continue
-            # 5090 busy, 3090 free: give the 3090 to the first waiter that would otherwise
-            # wait longer for the 5090 than the 3090 takes to render it.
-            for i, w in enumerate(self._waiters):
-                if self._remaining(self.V) + (i + 1) * self.est[self.V] > self.est[self.I]:
-                    self._take(self._waiters.pop(i), self.I)
-                    break
+            # 5090 busy, 3090 free. Count jobs not started too: image_jobs_in_flight caps the
+            # waiters, so a long batch would otherwise never reach the 3090. Not the running jobs:
+            # those in the critic have rendered, and counting them could put a batch's last image
+            # on the slow GPU. The newest waiter goes, as those ahead are next for the 5090.
+            left = len(self._waiters) + self._queued()
+            if self._remaining(self.V) + left * self.est[self.V] > self.est[self.I]:
+                self._take(self._waiters.pop(), self.I)
             return
 
     def _take(self, fut: asyncio.Future, server: str):
@@ -116,14 +120,15 @@ class GpuPool:
                 self._dispatch()
             raise
         t, ok = time.monotonic(), False
+        cold = server == self.V and self.loaded[self.V] != KREA
         try:
-            if server == self.V and self.loaded[self.V] != KREA:
+            if cold:
                 await self._free(self.V)                      # MiniMax out before Krea comes in
                 self._set_loaded(self.V, KREA)
             yield server
             ok = True
-        finally:
-            self._release(server, time.monotonic() - t if ok else None)
+        finally:      # a cold load isn't a typical render: it would make short batches overflow to the 3090
+            self._release(server, time.monotonic() - t if ok and not cold else None)
 
     @asynccontextmanager
     async def video_slot(self):

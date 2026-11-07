@@ -58,6 +58,17 @@ def test_project_without_the_row_is_full(harness):
     asyncio.run(go())
 
 
+def test_one_image_borrows_the_video_gpu_only_in_image_only_projects(harness):
+    async def go():
+        h = harness
+        await h.create_project("Pics", image_only=True)
+        assert h._borrow_threshold() == 1
+        h.upgrade_project()
+        assert h._borrow_threshold() == int(h.settings.gpu_sharing["min_backlog"])
+        await h.close_project()
+    asyncio.run(go())
+
+
 def test_upgrade_unlocks_video(harness):
     async def go():
         h = harness

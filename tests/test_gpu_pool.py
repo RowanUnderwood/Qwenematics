@@ -5,7 +5,7 @@ import pytest
 from harness.jobs.gpu_pool import KREA, MINIMAX, GpuPool
 
 
-def make(backlog=1, borrow=True, loaded_video=None):
+def make(backlog=1, borrow=True, loaded_video=None, min_backlog=2, queued=0):
     frees = []
     st = {"backlog": backlog, "borrow": borrow}
 
@@ -13,7 +13,7 @@ def make(backlog=1, borrow=True, loaded_video=None):
         frees.append(name)
 
     pool = GpuPool(free=free, can_borrow=lambda: st["borrow"], backlog=lambda: st["backlog"],
-                   min_backlog=lambda: 2, est={"image": 33.0, "video": 11.0})
+                   min_backlog=lambda: min_backlog, queued=lambda: queued, est={"image": 33.0, "video": 11.0})
     pool.loaded["video"] = loaded_video
     return pool, frees, st
 
@@ -37,6 +37,68 @@ def test_single_image_stays_on_image_gpu_unless_krea_is_warm_there():
         async with pool.image_slot() as s:
             assert s == "video"
         assert frees == []                       # already Krea: nothing to empty
+    run(go())
+
+
+def test_single_image_borrows_when_threshold_is_one():
+    async def go():
+        pool, frees, _ = make(backlog=1, min_backlog=1)
+        async with pool.image_slot() as s:
+            assert s == "video"
+        assert frees == ["video"] and pool.loaded["video"] == KREA
+    run(go())
+
+
+def test_cold_load_does_not_skew_the_estimate():
+    async def go():
+        pool, _, _ = make(backlog=1, min_backlog=1)
+        async with pool.image_slot() as s:
+            await asyncio.sleep(0.02)
+        assert s == "video" and pool.est["video"] == 11.0       # cold: not averaged in
+        async with pool.image_slot():
+            await asyncio.sleep(0.02)
+        assert pool.est["video"] < 11.0                         # warm: averaged in
+    run(go())
+
+
+def test_small_batch_stays_on_fast_gpu():
+    async def go():
+        pool, _, _ = make(backlog=3, min_backlog=1)
+        hold = asyncio.Event()
+        out: list[str] = []
+        tasks = [asyncio.create_task(take(pool, out, hold)) for _ in range(3)]
+        await asyncio.sleep(0.05)
+        assert out == ["video"]                  # 11 s left + 2 x 11 s isn't more than 33 s
+        hold.set()
+        await asyncio.gather(*tasks)
+        assert out == ["video"] * 3
+    run(go())
+
+
+def test_long_batch_uses_both_gpus_even_with_few_jobs_in_flight():
+    async def go():
+        pool, _, _ = make(backlog=8, min_backlog=1, queued=6)
+        hold = asyncio.Event()
+        out: list[str] = []
+        tasks = [asyncio.create_task(take(pool, out, hold)) for _ in range(2)]
+        await asyncio.sleep(0.05)
+        assert sorted(out) == ["image", "video"]
+        hold.set()
+        await asyncio.gather(*tasks)
+    run(go())
+
+
+def test_jobs_past_their_render_dont_send_the_last_image_to_the_slow_gpu():
+    async def go():
+        pool, _, _ = make(backlog=6, min_backlog=1)     # 4 of them are in the critic
+        hold = asyncio.Event()
+        out: list[str] = []
+        tasks = [asyncio.create_task(take(pool, out, hold)) for _ in range(2)]
+        await asyncio.sleep(0.05)
+        assert out == ["video"]
+        hold.set()
+        await asyncio.gather(*tasks)
+        assert out == ["video", "video"]
     run(go())
 
 

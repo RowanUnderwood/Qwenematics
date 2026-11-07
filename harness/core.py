@@ -67,13 +67,19 @@ class Harness:
         self.pool = GpuPool(free=lambda name: self.clients[name].free(),
                             can_borrow=self._can_borrow_video,
                             backlog=lambda: self.queue.pending("image") if self.queue else 0,
-                            min_backlog=lambda: int(self.settings.gpu_sharing.get("min_backlog", 2)),
+                            min_backlog=self._borrow_threshold,
+                            queued=lambda: self.queue.queues["image"].qsize() if self.queue else 0,
                             est={k: float(v) for k, v in (g.get("est_seconds") or {}).items()},
                             on_change=lambda: bus.publish("servers"))
 
     def _can_borrow_video(self) -> bool:
         return (self.settings.gpu_sharing.get("image_on_video_gpu", "auto") != "off"
                 and not self.krea_on_video and "video" in self.object_info)
+
+    def _borrow_threshold(self) -> int:
+        """Image jobs needed to borrow a 5090 without Krea loaded. An image-only project has
+        no MiniMax to switch back to, so even one image is worth it."""
+        return 1 if self.image_only() else int(self.settings.gpu_sharing.get("min_backlog", 2))
 
     def gpu_label(self, server: str) -> str:
         return self.settings.servers.get(server, {}).get("expect_gpu", server).replace("RTX ", "")

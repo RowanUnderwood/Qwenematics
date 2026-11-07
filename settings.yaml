@@ -36,7 +36,7 @@ iterate:
 
 gpu_sharing:                     # Krea images on the video GPU (5090) while no video is rendering
   image_on_video_gpu: auto       # auto | off
-  min_backlog: 2                 # borrow a 5090 that has MiniMax loaded only for this many image jobs in flight
+  min_backlog: 2                 # borrow a 5090 that has MiniMax loaded only for this many image jobs in flight (image-only projects: always 1)
   image_jobs_in_flight: 3        # reference jobs running at once (Qwen writes/critiques while GPUs render)
   est_seconds: {image: 33, video: 11}   # starting guesses per Krea image; refined from real renders
 # Changes made in the GUI are kept in projects/.harness_state.json and override these.

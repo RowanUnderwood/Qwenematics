@@ -80,9 +80,11 @@
           <select value={gs.image_on_video_gpu} onchange={(e) => saveSharing({ image_on_video_gpu: e.target.value })}>
             <option value="auto">auto (recommended)</option><option value="off">off: image GPU only</option>
           </select></label>
-        <label class="f">Borrow it from this many image jobs
-          <input type="number" min="1" max="20" value={gs.min_backlog} style="width:70px"
-                 onchange={(e) => saveSharing({ min_backlog: +e.target.value })} /></label>
+        {#if !imageOnly()}
+          <label class="f">Borrow it from this many image jobs
+            <input type="number" min="1" max="20" value={gs.min_backlog} style="width:70px"
+                   onchange={(e) => saveSharing({ min_backlog: +e.target.value })} /></label>
+        {/if}
         <label class="f">Reference jobs at once
           <input type="number" min="1" max="8" value={gs.image_jobs_in_flight} style="width:70px"
                  onchange={(e) => saveSharing({ image_jobs_in_flight: +e.target.value })} /></label>
@@ -93,7 +95,7 @@
         Typical seconds per image: image GPU {gs.pool.est_s.image}, video GPU {gs.pool.est_s.video}.
         {#if gs.krea_on_video_problems.length}<br /><span class="badge bad">can't borrow</span> {gs.krea_on_video_problems[0]}{/if}
       </span>
-      <span class="muted" style="font-size:12px">A video render always comes first: it waits only for the image already on the video GPU, which is then emptied (switching back to MiniMax costs ~26 s, so a single image stays on the image GPU unless Krea is already loaded there). "Reference jobs at once" applies the next time a project is opened.</span>
+      <span class="muted" style="font-size:12px">A video render always comes first: it waits only for the image already on the video GPU, which is then emptied (switching back to MiniMax costs ~26 s, so in a full project a single image stays on the image GPU unless Krea is already loaded there; an image-only project always uses the video GPU first). The image GPU joins in from about 4 images. "Reference jobs at once" applies the next time a project is opened.</span>
     </div>
   {/if}
 

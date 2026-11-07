@@ -87,7 +87,7 @@ Prompt files and `prompts/knowledge/*` are cached (`lru_cache`), so editing them
   - An accepted change is appended to `Reference.description` as "Later change (overrides the above)", so later writers and critics don't undo it.
   - Qwen isn't woken when a render finishes; it only runs on a user message.
 - **GPU pool (`harness/jobs/gpu_pool.py`):**
-  - Krea renders go through `pool.image_slot()`, which yields the server name for `runner.render(server=...)`. The 5090 is borrowed while video is idle.
+  - Krea renders go through `pool.image_slot()`, which yields the server name for `runner.render(server=...)`. The 5090 is borrowed while video is idle: from `min_backlog` jobs in a full project, from one in an image-only project (`Harness._borrow_threshold`). The 3090 joins in once the backlog would keep the 5090 busy for longer than one 3090 render.
   - `_shot_job` wraps its whole MiniMax section in `pool.video_slot()` (video first; Krea is emptied out first).
   - Never call `runner.render` for Krea outside the pool, or both models can land on the 5090 (21 + 28.5 GB > 32 GB).
   - Use `wv.problems_on(oi)` to check a workflow against another server; `check_against_server` overwrites `wv.problems`.
