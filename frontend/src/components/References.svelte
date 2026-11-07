@@ -1,15 +1,26 @@
 <script>
   import { api } from '../lib/api.js'
-  import { app, guard, toast, pin, load } from '../lib/state.svelte.js'
+  import { app, guard, toast, pin, load, imageOnly } from '../lib/state.svelte.js'
   import Media from './Media.svelte'
+  import StylePicker from './StylePicker.svelte'
 
   const KINDS = ['character', 'character_closeup', 'location', 'establishing', 'prop', 'first_frame', 'concept']
+  const blank = (img) => ({ name: '', kind: img ? 'concept' : 'character', description: '', enhance: true, aspect: '' })
+  let imgMode = $derived(imageOnly())
+  let kinds = $derived(imgMode ? KINDS.filter((k) => k !== 'first_frame') : KINDS)
+  let aspects = $derived(app.workflows.find((w) => w.id === 'krea2')?.params.aspect_ratio?.choices || [])
   let filter = $state('')
   let creating = $state(false)
-  let form = $state({ name: '', kind: 'character', description: '', enhance: true })
+  let varCount = $state(3)
+  let form = $state(blank(false))
   let open = $state(null)            // ref_id whose details are expanded
   let editing = $state(null)         // new-version editor: {ref_id, prompt, enhance}
   let upload = $state({ name: '', kind: 'character', file: null })
+  $effect(() => {                    // a project of the other mode was opened on this tab
+    const img = imgMode
+    form = blank(img)
+    upload = { name: '', kind: img ? 'concept' : 'character', file: null }
+  })
 
   let groups = $derived.by(() => {
     const f = filter.toLowerCase()
@@ -26,7 +37,7 @@
   async function create() {
     if (!form.name || !form.description) return
     await guard(() => api.post('/api/references', form))
-    form = { name: '', kind: 'character', description: '', enhance: true }; creating = false
+    form = blank(imgMode); creating = false
     toast('Queued on the image GPU')
   }
   function startRevise(r) {
@@ -45,6 +56,10 @@
       app.impact = { ref_id: r.ref_id, version_id: v.id, shots: (await api.get(`/api/references/${r.ref_id}/impact`)).shots }
     } else await guard(() => api.post(`/api/references/${r.ref_id}/current/${v.id}`))
   }
+  async function variations(r) {
+    const ok = await guard(() => api.post(`/api/references/${r.ref_id}/variations`, { count: varCount }))
+    if (ok) toast(`${ok.job_ids.length} variation(s) queued. Each arrives as a new version; press "use" on the one you want.`)
+  }
   async function delRef(r) {
     const plan = await guard(() => api.get(`/api/references/${r.ref_id}/delete_plan?cascade=true`))
     if (!plan) return
@@ -62,27 +77,34 @@
     const fd = new FormData()
     fd.append('file', upload.file); fd.append('name', upload.name); fd.append('kind', upload.kind)
     await guard(() => api.form('/api/references/upload', fd))
-    upload = { name: '', kind: 'character', file: null }
+    upload = { name: '', kind: imgMode ? 'concept' : 'character', file: null }
   }
 </script>
 
 <div class="scroll pad">
+  {#if imgMode}<div style="margin-bottom:10px"><StylePicker /></div>{/if}
   <div class="row">
     <input placeholder="Filter…" bind:value={filter} />
-    <button class="primary" onclick={() => (creating = !creating)}>+ Design a reference</button>
+    <button class="primary" onclick={() => (creating = !creating)}>+ Design {imgMode ? 'an image' : 'a reference'}</button>
     <span class="muted">or upload your own:</span>
     <input type="file" accept="image/*" onchange={(e) => (upload.file = e.target.files[0])} />
     <input placeholder="name" bind:value={upload.name} style="width:140px" />
-    <select bind:value={upload.kind}>{#each KINDS as k}<option>{k}</option>{/each}</select>
+    <select bind:value={upload.kind}>{#each kinds as k}<option>{k}</option>{/each}</select>
     <button onclick={doUpload} disabled={!upload.file || !upload.name}>Upload</button>
   </div>
 
   {#if creating}
     <div class="card col" style="margin-top:10px;max-width:700px">
-      <div class="row"><input class="grow" placeholder="Name, e.g. Mara - full body" bind:value={form.name} />
-        <select bind:value={form.kind}>{#each KINDS as k}<option>{k}</option>{/each}</select></div>
+      <div class="row"><input class="grow" placeholder={imgMode ? 'Name, e.g. Harbour poster' : 'Name, e.g. Mara - full body'} bind:value={form.name} />
+        <select bind:value={form.kind}>{#each kinds as k}<option>{k}</option>{/each}</select>
+        {#if imgMode}
+          <select bind:value={form.aspect} title="Frame; the default comes from the kind">
+            <option value="">default frame</option>
+            {#each aspects as a}<option>{a}</option>{/each}
+          </select>
+        {/if}</div>
       <textarea rows={form.enhance ? 3 : 8} bind:value={form.description}
-        placeholder={form.enhance ? 'What it must show. Qwen writes the Krea prompt from this and the story bible.'
+        placeholder={form.enhance ? (imgMode ? 'What it must show. Qwen writes the Krea prompt from this.' : 'What it must show. Qwen writes the Krea prompt from this and the story bible.')
                                   : 'Exact Krea prompt (sent as-is; a locked project style still replaces its Style: line)'}></textarea>
       <div class="row"><button class="primary" onclick={create}>Render</button><button onclick={() => (creating = false)}>Cancel</button>
         <label class="row muted" title="Off: your text goes to Krea verbatim and Qwen doesn't revise it after the critic">
@@ -120,6 +142,10 @@
               {/if}
               <div class="row">
                 {#if editing?.ref_id !== r.ref_id}<button class="primary small" onclick={() => startRevise(r)}>New version…</button>{/if}
+                {#if imgMode && v?.prompt}
+                  <button class="small" onclick={() => variations(r)} title="Render this prompt again with new seeds">Variations</button>
+                  <select bind:value={varCount} title="How many variations">{#each [1, 2, 3, 4, 6, 8] as n}<option value={n}>{n}</option>{/each}</select>
+                {/if}
                 <button class="small" onclick={() => pin({ type: 'ref', id: r.ref_id, file_id: v?.file_id, label: r.name })}>💬 Chat about it</button>
                 <button class="small danger" onclick={() => delRef(r)}>Delete…</button>
               </div>
@@ -143,7 +169,7 @@
       {/each}
     </div>
   {:else}
-    <p class="muted" style="margin-top:20px">No reference images yet. Ask Qwen in the chat, or design one here.</p>
+    <p class="muted" style="margin-top:20px">No {imgMode ? '' : 'reference '}images yet. Ask Qwen in the chat, or design one here.</p>
   {/each}
 </div>
 

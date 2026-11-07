@@ -1,7 +1,7 @@
 <script>
   import { onMount } from 'svelte'
   import { api } from './lib/api.js'
-  import { app, start, load, guard, toast } from './lib/state.svelte.js'
+  import { app, start, load, guard, toast, imageOnly } from './lib/state.svelte.js'
   import Chat from './components/Chat.svelte'
   import References from './components/References.svelte'
   import Shots from './components/Shots.svelte'
@@ -18,17 +18,27 @@
     ['chat', 'Chat'], ['refs', 'Reference images'], ['shots', 'Shots & video'], ['timeline', 'Timeline'],
     ['bible', 'Story bible'], ['jobs', 'Jobs'], ['settings', 'Settings'],
   ]
+  const VIDEO_TABS = ['shots', 'timeline', 'bible']
   let menu = $state(false)
+  let creating = $state(null)     // new-project dialog: { name, image_only }
   let off = $state(null)          // shutdown dialog: { comfy, llm }
   let stopped = $state(false)
   let activeJobs = $derived(app.jobs.filter((j) => j.state === 'running' || j.state === 'queued').length)
 
-  async function newProject() {
-    const name = prompt('New project name:')
+  // Opening an image-only project must not leave the user on a tab it doesn't have.
+  $effect(() => { if (imageOnly() && VIDEO_TABS.includes(app.tab)) app.tab = 'chat' })
+
+  function newProject() { creating = { name: '', image_only: false }; menu = false }
+  async function createProject(e) {
+    e.preventDefault()
+    const name = creating.name.trim()
     if (!name) return
-    await guard(() => api.post('/api/projects', { name }))
-    await load.all(); menu = false
+    const r = await guard(() => api.post('/api/projects', { name, image_only: creating.image_only }))
+    if (!r) return
+    creating = null
+    await load.all()
   }
+  const focus = (el) => el.focus()
   async function openProject(p) {
     await guard(() => api.post('/api/projects/open', { path: p.path }))
     await load.all(); menu = false
@@ -63,7 +73,7 @@
   <header class="row">
     <div class="brand row"><img src="/logo.svg" alt="" class="logo" />Qwenematics</div>
     <div class="proj">
-      <button onclick={() => (menu = !menu)}>{app.project ? app.project.name : 'No project'} ▾</button>
+      <button onclick={() => (menu = !menu)}>{app.project ? app.project.name : 'No project'}{#if imageOnly()} <span class="badge">images</span>{/if} ▾</button>
       {#if menu}
         <div class="menu card col">
           <button onclick={newProject}>New project…</button>
@@ -81,8 +91,10 @@
     </div>
     <nav class="row">
       {#each tabs as [id, label]}
-        <button class:on={app.tab === id} onclick={() => (app.tab = id)}>
-          {label}{#if id === 'jobs' && activeJobs}<span class="badge warn">{activeJobs}</span>{/if}
+        {@const greyed = imageOnly() && VIDEO_TABS.includes(id)}
+        <button class:on={app.tab === id} disabled={greyed} onclick={() => (app.tab = id)}
+                title={greyed ? 'Not available in an image-only project. You can upgrade it in Settings.' : undefined}>
+          {id === 'refs' && imageOnly() ? 'Images' : label}{#if id === 'jobs' && activeJobs}<span class="badge warn">{activeJobs}</span>{/if}
         </button>
       {/each}
     </nav>
@@ -116,6 +128,17 @@
   </main>
 </div>
 
+{#if creating}
+  <div class="veil">
+    <form class="card col dlg" onsubmit={createProject}>
+      <h2>New project</h2>
+      <input placeholder="Project name" bind:value={creating.name} use:focus />
+      <label class="row"><input type="checkbox" bind:checked={creating.image_only} /> Image only</label>
+      <span class="muted">Just chat, images, jobs and settings: Qwen designs finished images and doesn't plan shots or video. You can upgrade to a full project later.</span>
+      <div class="row"><div class="grow"></div><button type="button" onclick={() => (creating = null)}>Cancel</button><button class="primary" type="submit" disabled={!creating.name.trim()}>Create</button></div>
+    </form>
+  </div>
+{/if}
 {#if off}
   <div class="veil">
     <div class="card col dlg">
@@ -152,6 +175,7 @@
   .logo { width: 22px; height: 22px; display: block; }
   nav button { border-color: transparent; background: transparent; }
   nav button.on { background: var(--panel2); border-color: var(--line); }
+  nav button:disabled { opacity: .4; cursor: not-allowed; }
   nav .badge { margin-left: 5px; }
   .proj { position: relative; }
   .menu { position: absolute; top: 34px; left: 0; z-index: 30; min-width: 320px; max-height: 70vh; overflow: auto; }

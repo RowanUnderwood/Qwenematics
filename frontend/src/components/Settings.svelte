@@ -1,9 +1,14 @@
 <script>
   import { api } from '../lib/api.js'
-  import { app, guard, toast, load } from '../lib/state.svelte.js'
+  import { app, guard, toast, load, imageOnly } from '../lib/state.svelte.js'
 
   let ps = $state(null)
-  $effect(() => { if (app.psettings && !ps) ps = JSON.parse(JSON.stringify(app.psettings)) })
+  let psPath = null                      // the project `ps` was copied from: a save must never reach another project
+  $effect(() => {
+    if (app.psettings && (!ps || psPath !== app.psettingsPath)) {
+      ps = JSON.parse(JSON.stringify(app.psettings)); psPath = app.psettingsPath
+    }
+  })
   let preferred = (id) => app.workflows.filter((w) => w.id === id)
 
   async function launch(name) {
@@ -21,7 +26,9 @@
   async function cleanup() {
     const plan = await guard(() => api.get('/api/cleanup/plan'))
     if (!plan) return
-    if (!confirm(`Clean up ${plan.files.length} file(s), ${(plan.bytes / 1048576).toFixed(1)} MB?\n\nRemoves unpicked previews of finished shots, spent latents, unused old reference versions, and cached proxies/thumbnails.`)) return
+    const what = imageOnly() ? 'image versions and variations you are not using, and cached thumbnails'
+      : 'unpicked previews of finished shots, spent latents, unused old reference versions, and cached proxies/thumbnails'
+    if (!confirm(`Clean up ${plan.files.length} file(s), ${(plan.bytes / 1048576).toFixed(1)} MB?\n\nRemoves ${what}.`)) return
     const r = await guard(() => api.post('/api/cleanup'))
     if (r) toast(`Removed ${r.removed} file(s)`)
   }
@@ -35,14 +42,19 @@
   }
   async function restoreDefaults() {
     const what = ['GPU sharing (back to settings.yaml)']
-    if (app.project) what.push(`this project's video aspect, iteration settings and workflow parameter overrides`)
-    if (!confirm(`Restore defaults?\n\nResets: ${what.join('; ')}.\n\nKept: the style locked in the Bible tab, the bible, shots, references and renders.`)) return
+    if (app.project) what.push(imageOnly() ? `this project's iteration settings and workflow parameter overrides` : `this project's video aspect, iteration settings and workflow parameter overrides`)
+    const kept = imageOnly() ? 'the locked style and your images' : 'the style locked in the Bible tab, the bible, shots, references and renders'
+    if (!confirm(`Restore defaults?\n\nResets: ${what.join('; ')}.\n\nKept: ${kept}.`)) return
     const r = await guard(() => api.post('/api/settings/restore_defaults'))
     if (!r) return
     gs = null; ps = null                  // re-read both from the server
     api.get('/api/gpu_sharing').then((x) => (gs = x))
     await load.psettings()
     toast('Defaults restored')
+  }
+  async function upgrade() {
+    if (!confirm('Upgrade this project to a full project?\n\nShots, the timeline, the story bible and video tools become available. Your images stay as they are.\n\nThis cannot be undone.')) return
+    if (await guard(() => api.post('/api/project/upgrade'))) toast('This is now a full project')
   }
 </script>
 
@@ -99,20 +111,22 @@
     <h2>Project settings</h2>
     <div class="card col">
       <div class="row">
-        <label class="f">Video aspect ratio
-          <select bind:value={ps.video_aspect}>
-            {#each (app.workflows.find((w) => w.id === 'minimax_h3')?.params.aspect_ratio?.choices || [ps.video_aspect]) as c}<option>{c}</option>{/each}
-          </select></label>
+        {#if !imageOnly()}
+          <label class="f">Video aspect ratio
+            <select bind:value={ps.video_aspect}>
+              {#each (app.workflows.find((w) => w.id === 'minimax_h3')?.params.aspect_ratio?.choices || [ps.video_aspect]) as c}<option>{c}</option>{/each}
+            </select></label>
+        {/if}
         <label class="f">Auto-iterate with the critic
           <select bind:value={ps.iterate.auto}><option value={undefined}>default</option><option value={true}>on</option><option value={false}>off</option></select></label>
         <label class="f">Extra image rounds <input type="number" min="0" max="5" bind:value={ps.iterate.max_image_iterations} style="width:70px" /></label>
-        <label class="f">Extra video rounds <input type="number" min="0" max="3" bind:value={ps.iterate.max_video_iterations} style="width:70px" /></label>
+        {#if !imageOnly()}<label class="f">Extra video rounds <input type="number" min="0" max="3" bind:value={ps.iterate.max_video_iterations} style="width:70px" /></label>{/if}
         <label class="f">Accept score (/10) <input type="number" min="1" max="10" bind:value={ps.iterate.accept_score} style="width:70px" /></label>
-        <label class="f">Seed-hunt auto-proceed (s, 0 = wait for me) <input type="number" min="0" max="600" bind:value={ps.iterate.seedhunt_auto_proceed_s} style="width:70px" /></label>
+        {#if !imageOnly()}<label class="f">Seed-hunt auto-proceed (s, 0 = wait for me) <input type="number" min="0" max="600" bind:value={ps.iterate.seedhunt_auto_proceed_s} style="width:70px" /></label>{/if}
       </div>
     </div>
 
-    {#each app.workflows.filter((w) => w.usable || w.problems.length === 0) as w}
+    {#each app.workflows.filter((w) => (w.usable || w.problems.length === 0) && !(imageOnly() && w.id === 'minimax_h3')) as w}
       <h3>{w.key} parameters</h3>
       <p class="muted">Blank = workflow default. <span class="badge ok">Qwen</span> marks knobs Qwen may set per item; everything else is yours, applied to every render in this project.</p>
       <div class="pgrid">
@@ -144,6 +158,11 @@
     <h2>Housekeeping</h2>
     <div class="row"><button onclick={cleanup}>Clean up unused files…</button>
       <span class="muted">Project delete (everything, including ComfyUI-side files) is in the project menu.</span></div>
+    {#if imageOnly()}
+      <h2>Project type</h2>
+      <div class="row"><button onclick={upgrade}>Upgrade to full project…</button>
+        <span class="muted">Adds shots, the timeline, the story bible and video. This cannot be undone.</span></div>
+    {/if}
   {/if}
 </div>
 

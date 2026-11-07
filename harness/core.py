@@ -144,11 +144,13 @@ class Harness:
         self._start_queue()
         return self.project
 
-    async def create_project(self, name: str) -> Project:
+    async def create_project(self, name: str, image_only: bool = False) -> Project:
         await self.close_project()
         self.project = Project.create(self.settings.projects_root, name)
         with self.project.session() as s:
             s.add(m.Meta(key="settings", value=json.dumps(DEFAULT_PROJECT_SETTINGS)))
+            if image_only:      # its own row: saving or resetting the settings blob must not touch it
+                s.add(m.Meta(key="mode", value="image"))
         self._start_queue()
         return self.project
 
@@ -168,6 +170,30 @@ class Harness:
         if self.project is None:
             raise HarnessError("no project is open")
         return self.project
+
+    def image_only(self) -> bool:
+        if self.project is None:
+            return False
+        with self.project.session() as s:
+            row = s.get(m.Meta, "mode")
+        return bool(row) and row.value == "image"
+
+    def _require_video(self, what: str):
+        if self.image_only():
+            raise HarnessError(f"This is an image-only project, so it has no {what}. "
+                               "Upgrade it to a full project in Settings to use them.")
+
+    def upgrade_project(self):
+        """Image-only -> full project. One way: a full project may then hold shots."""
+        if not self.image_only():
+            raise HarnessError("this is already a full project")
+        with self.p().session() as s:
+            s.delete(s.get(m.Meta, "mode"))
+        self.chat_event("Upgraded to a full project: shots, the timeline and the story bible are now available.", [])
+
+    def image_aspects(self) -> list[str] | None:
+        """The Krea frames on offer, or None while the image server hasn't been seen."""
+        return self.registry.get(IMAGE_WF).choices("aspect_ratio", self.object_info.get("image"))
 
     def project_settings(self) -> dict:
         with self.p().session() as s:
@@ -216,6 +242,23 @@ class Harness:
         bus.publish("bible", id=e.id)
         return e
 
+    def image_digest(self, max_chars: int = 2500, exclude: int | None = None) -> str:
+        """Image-only projects have no bible: recent finished images give the Krea writer
+        the wording to reuse for recurring subjects."""
+        parts, used = [], 0
+        with self.p().session() as s:
+            for ref in s.exec(select(m.Reference).order_by(m.Reference.id.desc())).all():
+                v = s.get(m.RefVersion, ref.current_version_id) if ref.current_version_id else None
+                text = (v.caption or ref.description[:200]) if v and ref.id != exclude else ""   # the caption describes what it looks like now
+                if not text:
+                    continue
+                line = f"[{ref.kind}] {ref.name}: {text}"
+                if used + len(line) > max_chars:
+                    break
+                parts.append(line)
+                used += len(line) + 1
+        return "\n".join(parts)
+
     # ------------------------------------------------------------ references
     def search_references(self, text: str = "", kind: str | None = None, limit: int = 8) -> list[dict]:
         words = [w for w in re.findall(r"[a-z0-9]+", text.lower()) if len(w) > 2]
@@ -244,23 +287,48 @@ class Harness:
                 "used_in_shots": sorted({x["shot_id"] for x in imp.shots})}
 
     def create_reference(self, name: str, kind: str, description: str, tags: list[str] | None = None,
-                         render: bool = True, enhance: bool = True) -> tuple[int, int | None]:
-        """With enhance off, `description` is the exact Krea prompt (Qwen doesn't rewrite it)."""
+                         render: bool = True, enhance: bool = True, aspect: str | None = None) -> tuple[int, int | None]:
+        """With enhance off, `description` is the exact Krea prompt (Qwen doesn't rewrite it).
+        `aspect` overrides the kind's frame, in image-only projects only."""
+        if self.image_only():
+            if kind == "first_frame":
+                raise HarnessError("first_frame is for video; choose another kind")
+            self._check_aspect(aspect)
+        else:
+            aspect = None
         with self.p().session() as s:
             ref = m.Reference(name=name, kind=kind, description=description, tags=tags or [])
             s.add(ref)
             s.flush()
             ref_id = ref.id
         bus.publish("reference", id=ref_id)
-        job = self.queue.submit("ref_image", "image", lambda ctx: self._ref_job(ctx, ref_id, None, None if enhance else description, enhance),
+        job = self.queue.submit("ref_image", "image", lambda ctx: self._ref_job(ctx, ref_id, None, None if enhance else description, enhance, aspect=aspect),
                                 {"ref_id": ref_id, "name": name}) if render else None
         return ref_id, job
 
+    def _check_aspect(self, aspect: str | None):
+        choices = self.image_aspects()
+        if aspect and choices and aspect not in choices:
+            raise HarnessError(f"unknown aspect ratio {aspect!r}; choose one of: {', '.join(choices)}")
+
+    def active_ref_render(self, ref_id: int) -> m.Job | None:
+        """A running or queued render that will change this reference. Variations don't count."""
+        with self.p().session() as s:
+            jobs = s.exec(select(m.Job).where(m.Job.kind == "ref_image", m.Job.state.in_(["queued", "running"]))).all()
+        return next((j for j in jobs if j.payload.get("ref_id") == ref_id and j.payload.get("change") != "variation"), None)
+
     def revise_reference(self, ref_id: int, change: str | None = None, prompt: str | None = None,
-                         enhance: bool = True) -> int:
+                         enhance: bool = True, aspect: str | None = None) -> int:
         """A new version from a change request (Qwen rewrites the prompt) or from an edited
-        prompt (sent as-is unless enhance, which has Qwen polish it)."""
+        prompt (sent as-is unless enhance, which has Qwen polish it). `aspect` changes the
+        frame, in image-only projects only."""
         change, prompt = (change or "").strip() or None, (prompt or "").strip() or None
+        if self.image_only():
+            self._check_aspect(aspect)
+        else:
+            aspect = None
+        if aspect and not change and not prompt:
+            change = f"Recompose the image for a {aspect} frame."
         if not change and not prompt:
             raise HarnessError("describe a change or give a prompt")
         with self.p().session() as s:
@@ -268,8 +336,27 @@ class Harness:
             if ref is None:
                 raise HarnessError(f"no reference {ref_id}")
             name = ref.name
-        return self.queue.submit("ref_image", "image", lambda ctx: self._ref_job(ctx, ref_id, change, prompt, enhance),
+        return self.queue.submit("ref_image", "image", lambda ctx: self._ref_job(ctx, ref_id, change, prompt, enhance, aspect=aspect),
                                  {"ref_id": ref_id, "name": name, "change": change or "edited prompt"})
+
+    def make_variations(self, ref_id: int, count: int = 3) -> list[int]:
+        """Image-only: re-render the current prompt with new seeds. Each result is a new
+        version; the current one stays until the user picks another."""
+        if not self.image_only():
+            raise HarnessError("variations are only available in image-only projects")
+        if not 1 <= count <= 8:
+            raise HarnessError("make 1 to 8 variations at a time")
+        with self.p().session() as s:
+            ref = s.get(m.Reference, ref_id)
+            if ref is None:
+                raise HarnessError(f"no image {ref_id}")
+            v = s.get(m.RefVersion, ref.current_version_id) if ref.current_version_id else None
+            if v is None or not v.prompt:
+                raise HarnessError(f"'{ref.name}' has no finished render with a prompt to vary")
+            name, prompt = ref.name, v.prompt
+        return [self.queue.submit("ref_image", "image",
+                                  lambda ctx: self._ref_job(ctx, ref_id, None, prompt, False, fresh_seed=True, make_current=False),
+                                  {"ref_id": ref_id, "name": name, "change": "variation"}) for _ in range(count)]
 
     def import_reference_file(self, src: Path, name: str, kind: str, description: str = "",
                               ref_id: int | None = None) -> int:
@@ -298,7 +385,8 @@ class Harness:
         return vid
 
     async def _ref_job(self, ctx: JobCtx, ref_id: int, change: str | None, user_prompt: str | None = None,
-                       enhance: bool = True) -> dict:
+                       enhance: bool = True, aspect: str | None = None, fresh_seed: bool = False,
+                       make_current: bool = True) -> dict:
         proj = self.p()
         wv = self.registry.get(IMAGE_WF)
         if not wv.usable:
@@ -307,12 +395,25 @@ class Harness:
         # Critic rounds rewrite the prompt, so a verbatim prompt gets one render.
         rounds = 1 + (int(it.get("max_image_iterations", 0)) if it.get("auto", True) and enhance else 0)
         pset = self.project_settings()
+        image_only = self.image_only()
         with proj.session() as s:
             ref = s.get(m.Reference, ref_id)
             base = s.get(m.RefVersion, ref.current_version_id) if ref.current_version_id else None
             name, kind, desc = ref.name, ref.kind, ref.description
             prev_prompt = base.prompt if base else None
-        bible = self.bible_text()
+        render_over: dict[str, Any] = {}       # beat the kind's frame and any Settings values
+        frame = None
+        if image_only:
+            locked = pset["params"].get(IMAGE_WF, {})
+            if aspect or (base and (base.params or {}).get("aspect_ratio")):
+                render_over["aspect_ratio"] = aspect or base.params["aspect_ratio"]   # a revision keeps its frame
+            if fresh_seed:
+                render_over["seed"] = -1       # random, even if Settings locks a seed
+            elif base and base.seed is not None and locked.get("seed") in (None, "", -1):
+                render_over["seed"] = base.seed   # a revision stays as close to the last render as Krea allows
+            frame = wv.resolve_params({**locked, "ref_kind": kind, **render_over},
+                                      context={"video_aspect": pset["video_aspect"]})["aspect_ratio"]
+        bible = self.image_digest(exclude=ref_id) if image_only else self.bible_text()
         style = styles.style_line(pset.get("krea_style"))
         ctx.progress(0.02, "writing image prompt")
         tm = {"write_s": 0.0, "wait_gpu_s": 0.0, "render_s": 0.0, "critic_s": 0.0}
@@ -322,13 +423,14 @@ class Harness:
         elif user_prompt:
             prompt = await roles.write_krea_prompt(
                 self.llm, bible=bible, style=style, name=name, kind=kind, description=desc, previous_prompt=user_prompt,
-                change=change or "Polish this prompt for Krea; keep every edit the user made.")
+                change=change or "Polish this prompt for Krea; keep every edit the user made.", image_only=image_only, frame=frame)
         else:
             prompt = await roles.write_krea_prompt(self.llm, bible=bible, style=style, name=name, kind=kind,
                                                    description=desc, previous_prompt=prev_prompt if change else None,
-                                                   change=change)
+                                                   change=change, image_only=image_only, frame=frame)
         tm["write_s"] += time.monotonic() - t0
         best: tuple[float, int] | None = None
+        change_missing = False
         critique_txt = None
         for i in range(rounds):
             ctx.check()
@@ -336,9 +438,10 @@ class Harness:
                 ctx.progress(i / rounds, f"revising prompt (round {i + 1})")
                 t0 = time.monotonic()
                 prompt = await roles.write_krea_prompt(self.llm, bible=bible, style=style, name=name, kind=kind, description=desc,
-                                                       previous_prompt=prompt, critique=critique_txt)
+                                                       previous_prompt=prompt, change=change, critique=critique_txt,
+                                                       image_only=image_only, frame=frame)
                 tm["write_s"] += time.monotonic() - t0
-            params = wv.resolve_params({**pset["params"].get(IMAGE_WF, {}), "prompt": prompt, "ref_kind": kind},
+            params = wv.resolve_params({**pset["params"].get(IMAGE_WF, {}), "prompt": prompt, "ref_kind": kind, **render_over},
                                        context={"video_aspect": pset["video_aspect"]})
             ctx.progress((i + 0.05) / rounds, f"waiting for a GPU for {name}")
             tag = f"ref{ref_id}_{int(time.time())}"
@@ -359,8 +462,8 @@ class Harness:
             if rounds > 1:
                 t0 = time.monotonic()
                 part, _ = media.image_part(img)
-                crit = await roles.critique(self.llm, intent=f"{kind} reference '{name}': {desc}",
-                                            prompt=prompt, media=[part])
+                crit = await roles.critique(self.llm, intent=f"{kind} {'image' if image_only else 'reference'} '{name}': {desc}",
+                                            prompt=prompt, media=[part], image_only=image_only, change=change)
                 tm["critic_s"] += time.monotonic() - t0
             with proj.session() as s:
                 n = 1 + max([v.n for v in s.exec(select(m.RefVersion).where(m.RefVersion.ref_id == ref_id)).all()] or [0])
@@ -377,6 +480,7 @@ class Harness:
             score = float(crit.get("score", 0) or 0)
             if best is None or score > best[0]:
                 best = (score, vid)
+                change_missing = bool(change) and crit.get("change_visible") is False   # the critic may add the field unasked
             if rounds == 1 or score >= float(it.get("accept_score", 7)):
                 break
             critique_txt = crit.get("fix") or "; ".join(crit.get("issues", []))
@@ -385,19 +489,22 @@ class Harness:
             v = s.get(m.RefVersion, best[1])
             img = proj.abspath(s.get(m.FileRec, v.file_id))
         part, _ = media.image_part(img, 512)
-        cap = await roles.caption(self.llm, image_part=part, name=name, kind=kind)
+        cap = await roles.caption(self.llm, image_part=part, name=name, kind=kind, image_only=image_only)
         with proj.session() as s:
             v = s.get(m.RefVersion, best[1])
             v.caption = cap.get("caption", "")[:400]
             ref = s.get(m.Reference, ref_id)
+            if change and not change_missing:      # later writers and critics must not undo an accepted change
+                ref.description = f"{ref.description}\nLater change (overrides the above): {change}"
             if cap.get("tags"):
                 ref.tags = sorted(set(ref.tags) | {str(t).lower() for t in cap["tags"]})[:12]
             old_current = ref.current_version_id
-            in_use = deps.ref_impact(s, ref_id).shots if old_current else []
-            if not in_use:
+            in_use = deps.ref_impact(s, ref_id).shots if old_current and make_current else []
+            if make_current and not in_use:
                 ref.current_version_id = v.id       # nothing depends on it yet: just switch
             s.add_all([v, ref])
-        result = {"ref_id": ref_id, "version_id": best[1], "score": best[0], **{k: round(v, 1) for k, v in tm.items()}}
+        result = {"ref_id": ref_id, "version_id": best[1], "score": best[0], "change_missing": change_missing,
+                  **{k: round(v, 1) for k, v in tm.items()}}
         if in_use:
             result["needs_decision"] = {"shots": in_use, "message":
                 f"'{name}' is used by {len(in_use)} shot(s). Choose which shots switch to the new version."}
@@ -405,7 +512,9 @@ class Harness:
         bus.publish("reference", id=ref_id)
         with proj.session() as s:
             fid = s.get(m.RefVersion, best[1]).file_id
-        note = f"Reference '{name}' ready" + (f" (critic {best[0]:.0f}/10)" if best[0] else "")
+        note = f"{'Image' if image_only else 'Reference'} '{name}' ready" + (f" (critic {best[0]:.0f}/10)" if best[0] else "")
+        if change_missing:
+            note += f" - the requested change still isn't visible after {i + 1} attempt(s)"
         if in_use:
             note += f" - used in {len(in_use)} shot(s): choose which switch to it in the References tab"
         self.chat_event(note, [{"type": "ref_version", "id": best[1], "ref_id": ref_id, "file_id": fid,
@@ -422,6 +531,7 @@ class Harness:
 
     # ------------------------------------------------------------ shots
     def upsert_shot(self, shot_id: int | None = None, **fields) -> int:
+        self._require_video("shots")
         allowed = {"title", "description", "dialogue", "audio_notes", "mode", "duration_s", "prompt", "params",
                    "order", "status", "workflow"}
         with self.p().session() as s:
@@ -446,6 +556,7 @@ class Harness:
         current version; if it has none yet (still rendering) the slot is pending and the
         shot's render waits for it. Slots are re-packed so first/last frames lead and
         <Picture k> numbering stays dense."""
+        self._require_video("shots")
         with self.p().session() as s:
             if version_id is not None:
                 v = s.get(m.RefVersion, version_id)
@@ -544,6 +655,7 @@ class Harness:
     def render_shot(self, shot_id: int, rewrite_prompt: bool = False, change: str | None = None,
                     seeds: int | None = None, enhance: bool = True) -> int:
         """With enhance off the shot's saved prompt goes to MiniMax verbatim and Qwen never rewrites it."""
+        self._require_video("video renders")
         busy = self.active_shot_jobs().get(shot_id)
         if busy:
             raise HarnessError(f"shot {shot_id} is already {'rendering' if busy.state == 'running' else 'queued'} "
@@ -777,6 +889,7 @@ class Harness:
     # ------------------------------------------------------------ final cut
     def final_cut(self, name: str | None = None, loudnorm: bool = True, upscale: bool = True) -> int:
         """upscale=False joins the timeline previews as they are (a quick watch-through)."""
+        self._require_video("final cut")
         return self.queue.submit("final_cut", "video" if upscale else "local",
                                  lambda ctx: self._final_cut_job(ctx, name, loudnorm, upscale), {"upscale": upscale})
 

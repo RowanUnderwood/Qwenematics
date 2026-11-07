@@ -126,12 +126,19 @@ async def _with_lookups(llm: LLM, messages: list[dict], max_rounds: int = 3) -> 
     return await _non_empty(llm, msgs, await llm.chat(msgs, max_tokens=8000), "image prompt")
 
 
+MISSING_CHANGE_SCORE = 4
+
+
 async def write_krea_prompt(llm: LLM, *, bible: str, name: str, kind: str, description: str,
                             previous_prompt: str | None = None, change: str | None = None,
-                            critique: str | None = None, style: str | None = None) -> str:
+                            critique: str | None = None, style: str | None = None, image_only: bool = False,
+                            frame: str | None = None) -> str:
     """`style` is the project's locked Style line; it overrides any style in the bible
-    and is written into the prompt verbatim whatever the model does."""
-    task = [f"Reference to make: {name}", f"Kind: {kind}", f"What it must show: {description}"]
+    and is written into the prompt verbatim whatever the model does. With `image_only`,
+    `bible` is the digest of existing images and the result is a finished image."""
+    task = [f"{'Image' if image_only else 'Reference'} to make: {name}", f"Kind: {kind}", f"What it must show: {description}"]
+    if frame:
+        task.append(f"Frame: {frame}")
     if style:
         task.append("\nLOCKED PROJECT STYLE (chosen by the user; it overrides any style notes in the bible). "
                     "Use this exact line as the Style block, do not call lookup_style, and keep the other "
@@ -142,9 +149,9 @@ async def write_krea_prompt(llm: LLM, *, bible: str, name: str, kind: str, descr
         task.append(f"\nRequested change: {change}")
     if critique:
         task.append(f"\nCritic's notes on the last result: {critique}")
-    msgs = [{"role": "system", "content": prompt_file("krea_writer.md")},
-            {"role": "user", "content": f"PROJECT BIBLE (style, characters, places):\n{bible or '(empty)'}\n\n"
-                                        + "\n".join(task)}]
+    context = "EXISTING IMAGES (reuse this wording for recurring subjects)" if image_only else "PROJECT BIBLE (style, characters, places)"
+    msgs = [{"role": "system", "content": prompt_file("krea_writer_image.md" if image_only else "krea_writer.md")},
+            {"role": "user", "content": f"{context}:\n{bible or '(empty)'}\n\n" + "\n".join(task)}]
     return style_lib.enforce_style(await _with_lookups(llm, msgs), style)
 
 
@@ -186,24 +193,33 @@ async def write_h3_prompt(llm: LLM, *, bible: str, shot: dict, mode: str, durati
 
 
 async def critique(llm: LLM, *, intent: str, prompt: str, media: list[dict],
-                   transcript: str | None = None, candidates: int = 0) -> dict[str, Any]:
+                   transcript: str | None = None, candidates: int = 0, image_only: bool = False,
+                   change: str | None = None) -> dict[str, Any]:
+    """`change` is what this render was asked to alter; a result that doesn't show it can't pass."""
     text = [f"INTENT: {intent}", f"PROMPT USED:\n{prompt[:6000]}"]
+    if change:
+        text.insert(0, f"REQUESTED CHANGE: {change}")
     if transcript:
         text.append(f"SPEECH TRANSCRIPT: {transcript}")
     if candidates:
         text.append(f"There are {candidates} candidates, shown in order 1..{candidates}. Score the best one and set 'pick'.")
     content = list(media) + [{"type": "text", "text": "\n\n".join(text)}]
-    msgs = [{"role": "system", "content": prompt_file("critic.md")}, {"role": "user", "content": content}]
+    msgs = [{"role": "system", "content": prompt_file("critic_image.md" if image_only else "critic.md")},
+            {"role": "user", "content": content}]
     out = await llm.json_call(msgs, max_tokens=5000)
     out.setdefault("score", 0)
     out.setdefault("issues", [])
     out.setdefault("fix", "")
+    if change and out.get("change_visible") is False:      # enforced here: the job retries only on a low score
+        out["score"] = min(float(out["score"] or 0), MISSING_CHANGE_SCORE)
+        out["fix"] = out["fix"] or f"The requested change is not visible. Make it dominant: {change}"
     return out
 
 
-async def caption(llm: LLM, *, image_part: dict, name: str, kind: str) -> dict[str, Any]:
+async def caption(llm: LLM, *, image_part: dict, name: str, kind: str, image_only: bool = False) -> dict[str, Any]:
+    what = f"the image '{name}' (kind: {kind})" if image_only else f"the reference image '{name}' (kind: {kind}) for a film project"
     msgs = [{"role": "user", "content": [image_part, {"type": "text", "text":
-            f"This is the reference image '{name}' (kind: {kind}) for a film project. Reply with only JSON: "
+            f"This is {what}. Reply with only JSON: "
             '{"caption": "<one line, <=30 words, the concrete visual facts a reader needs to recognise it>", '
             '"tags": ["<3-8 short lowercase tags>"]}'}]}]
     try:

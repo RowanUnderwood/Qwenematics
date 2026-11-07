@@ -21,6 +21,20 @@ While no video is rendering, reference images also use the 5090. Krea takes abou
 - **Several reference jobs run at once** (`image_jobs_in_flight`, default 3), so Qwen writes and critiques while the GPUs render. Chat replies can wait behind one or two of those Qwen calls.
 - **Settings tab, "GPU sharing for images"** switches this off or tunes it. Changes made there are kept in `projects/.harness_state.json` and override the defaults in `settings.yaml` → `gpu_sharing`.
 
+## Image-only projects
+
+Tick **Image only** when creating a project if you just want pictures. It has **Chat**, **Images**, **Jobs** and **Settings**; the other tabs are greyed out, and Qwen designs finished images instead of planning shots.
+
+- **Frames:** each kind has a default frame, and you or Qwen can pick another per image: 1:1, 2:3, 3:2, 3:4, 4:3, 9:16, 16:9 or 21:9.
+- **Style:** lock a style at the top of the Images tab.
+- **Revisions:** these keep the image's frame and seed. Krea only takes text, so a revision is still a redraw and details can shift.
+- **Checking changes:** the critic checks that a requested change actually shows, and retries if it doesn't. If it still doesn't after the last attempt, the chat says so.
+- **Named characters:** Qwen often doesn't know what a character from a game or film really looks like, and Krea doesn't either. Describe the look you want.
+- **Variations:** these re-render the current prompt with new seeds. Each one arrives as a new version; press **use** on the one you want. **Clean up unused files** in Settings removes the versions you didn't pick.
+- **Consistency:** there is no story bible, so Qwen's prompt writer gets a short list of your existing images and reuses their wording for recurring subjects.
+- **Services:** only the image server and Qwen are needed. The video server is optional, and images borrow its GPU when it's running.
+- **Upgrading:** **Upgrade to full project** in Settings adds shots, the timeline, the bible and video. It can't be undone.
+
 ## How a clip gets made
 
 ```

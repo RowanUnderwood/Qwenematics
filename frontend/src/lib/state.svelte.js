@@ -4,7 +4,7 @@ import { api, connectEvents, fileUrl, thumbUrl } from './api.js'
 export const app = $state({
   tab: 'chat',
   status: null,           // /api/status
-  project: null,          // {name, path}
+  project: null,          // {name, path, mode: 'full' | 'image'}
   projects: [],
   refs: [],
   shots: [],
@@ -17,6 +17,7 @@ export const app = $state({
   busy: false,
   workflows: [],
   psettings: null,
+  psettingsPath: null,    // the project psettings were read from
   exports: [],
   context: [],            // pinned items for the next chat message: {type, id, file_id, label, video}
   lightbox: null,         // {file_id, video, label, item}
@@ -25,6 +26,8 @@ export const app = $state({
   shutdownSteps: null,
   impact: null,           // pending ref-version decision {ref_id, version_id, shots}
 })
+
+export const imageOnly = () => app.project?.mode === 'image'
 
 export function toast(msg, kind = 'info') {
   const t = { id: Math.random(), msg, kind }
@@ -56,7 +59,12 @@ export const load = {
   async jobs() { if (app.project) app.jobs = await api.get('/api/jobs') },
   async chat() { if (app.project) app.chat = await api.get('/api/chat') },
   async workflows() { app.workflows = await api.get('/api/workflows') },
-  async psettings() { if (app.project) app.psettings = await api.get('/api/project/settings') },
+  async psettings() {
+    if (!app.project) return
+    const path = app.project.path
+    app.psettings = await api.get('/api/project/settings')
+    app.psettingsPath = path
+  },
   async exports() { if (app.project) app.exports = await api.get('/api/exports') },
   async all() {
     await load.status()
@@ -76,6 +84,9 @@ function wire(e) {
       app.busy = true
       if (e.stream === 'reasoning') app.thinking += e.text
       else app.streaming += e.text
+      break
+    case 'chat_reset':
+      app.streaming = ''
       break
     case 'tool_call':
       app.busy = true

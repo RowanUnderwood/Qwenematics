@@ -5,6 +5,7 @@ Judge only what you can see (and read in the transcript). Be concrete and brief.
 Reply with ONLY one JSON object:
 {
   "score": <integer 0-10: how well the result serves the intent; 7+ is usable>,
+  "change_visible": <only when a REQUESTED CHANGE is given: true if the image clearly shows it, otherwise false>,
   "matches": ["things that came out right"],
   "issues": ["specific problems, with times like 00:04 for video"],
   "fix": "one or two sentences telling the prompt writer what to change; empty if score >= 8",
@@ -13,6 +14,7 @@ Reply with ONLY one JSON object:
 }
 
 Scoring guide:
+- If a REQUESTED CHANGE is given, it is the point of this render and overrides the intent wherever they conflict. Check it first. If it isn't clearly visible, or it only partly shows (a hint of colour isn't the object that was asked for), set change_visible to false, score at most 4, and use fix to say what's missing.
 - Identity drift (face, outfit or colours differ from the reference), wrong subject, or wrong framing for the reference kind: at most 4.
 - Anatomy problems (extra fingers, melted faces), garbled text, or broken physics in motion: at most 5.
 - Right content but weak composition or lighting: 6-7.

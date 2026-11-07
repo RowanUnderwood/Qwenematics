@@ -2,7 +2,7 @@
   // The project's visual style, chosen from the Krea 2 style library by its sample images.
   // Locking a style makes every Krea prompt use its exact Style paragraph.
   import { api } from '../lib/api.js'
-  import { app, guard, toast, load } from '../lib/state.svelte.js'
+  import { app, guard, toast, load, imageOnly } from '../lib/state.svelte.js'
 
   let lib = $state(null)            // { styles, bases, current }
   let open = $state(false)
@@ -48,11 +48,12 @@
         <strong>{current.name} <span class="badge ok">locked</span></strong>
         <span class="muted small">{current.categories.join(' · ')}</span>
         <span class="small">{current.paragraph}</span>
-        <span class="muted small">Every new reference image uses this exact Style paragraph, and Qwen keeps the video prompts in it. Existing references keep their look until you regenerate them.</span>
+        <span class="muted small">{imageOnly() ? 'Every new image uses this exact Style paragraph. Existing images keep their look until you revise them.'
+          : 'Every new reference image uses this exact Style paragraph, and Qwen keeps the video prompts in it. Existing references keep their look until you regenerate them.'}</span>
       </div>
     </div>
   {:else if !open}
-    <span class="muted">No style locked: Qwen picks or writes a style per image from the bible. Lock one to keep every image consistent.</span>
+    <span class="muted">No style locked: Qwen picks or writes a style per image{imageOnly() ? '' : ' from the bible'}. Lock one to keep every image consistent.</span>
   {/if}
 
   {#if open && lib}

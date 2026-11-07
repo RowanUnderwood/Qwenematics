@@ -14,6 +14,7 @@ from ..db import deps
 from ..db import models as m
 
 KINDS = ["character", "character_closeup", "location", "establishing", "prop", "first_frame", "concept"]
+IMAGE_KINDS = [k for k in KINDS if k != "first_frame"]
 ROLES_ = ["subject", "first_frame", "last_frame"]
 MODES = ["ref2va", "i2va", "fl2va", "l2va", "t2va"]
 BIBLE_KINDS = ["plot", "character", "location", "style", "audio", "dialogue", "note"]
@@ -73,6 +74,45 @@ TOOLS = [
         "question": {"type": "string"}}, ["question"]),
 ]
 
+_SHARED = {t["function"]["name"]: t for t in TOOLS}
+RENDER_NOTE = "You won't be told when it finishes. Tell the user it's rendering and end your turn; don't promise to check it."
+IMAGE_TOOL_NAMES = {"search_references", "get_reference", "create_reference", "revise_reference",
+                    "make_variations", "view", "job_status", "ask_user"}
+
+
+def _image_tools(aspects: list[str] | None) -> list[dict]:
+    aspect = {"type": "string", "description": "Optional frame, overriding the kind's. Revisions and variations keep it."}
+    if aspects:
+        aspect["enum"] = aspects
+    return [
+        _fn("search_references", "Find existing images, e.g. to revise one or to match a recurring subject.", {
+            "text": {"type": "string", "description": "Words describing what you need."},
+            "kind": {"type": "string", "enum": IMAGE_KINDS}}, ["text"]),
+        _fn("get_reference", "Details of one image: versions and captions.", {"ref_id": {"type": "integer"}}, ["ref_id"]),
+        _fn("create_reference", "Design a NEW image and queue its render (Krea 2).", {
+            "name": {"type": "string", "description": "Short unique name, e.g. 'Harbour poster'."},
+            "kind": {"type": "string", "enum": IMAGE_KINDS},
+            "description": {"type": "string", "description": "Everything it must show: subject, setting, mood, composition."},
+            "tags": {"type": "array", "items": {"type": "string"}},
+            "aspect_ratio": aspect}, ["name", "kind", "description"]),
+        _fn("revise_reference", "Make a new version of an image with a change (keeps the old version).", {
+            "ref_id": {"type": "integer"}, "change": {"type": "string"},
+            "aspect_ratio": {**aspect, "description": "Optional new frame. Without it the image keeps its frame."}},
+            ["ref_id", "change"]),
+        _fn("make_variations", "Re-render an image's current prompt with new seeds, for alternatives to an image the user "
+                               "likes. It can't add anything missing: use revise_reference for that. Results are new "
+                               "versions; its current version stays until the user picks another.", {
+            "ref_id": {"type": "integer"}, "count": {"type": "integer", "description": "1-8"}}, ["ref_id"]),
+        _fn("view", "Look at an image yourself. It is attached to your next turn only.", {
+            "item": {"type": "string", "description": "'ref:<ref_id>'"}}, ["item"]),
+        _SHARED["job_status"],
+        _SHARED["ask_user"],
+    ]
+
+
+def tools_for(image_only: bool, aspects: list[str] | None = None) -> list[dict]:
+    return _image_tools(aspects) if image_only else TOOLS
+
 
 class ToolBox:
     """Executes tool calls for one agent turn. `pending_media` collects view() requests."""
@@ -81,13 +121,16 @@ class ToolBox:
         self.h = harness
         self.pending_media: list[str] = []
         self.asked: str | None = None
+        self.image_only = harness.image_only()
         self.handlers: dict[str, Callable[..., Awaitable[Any] | Any]] = {
-            t["function"]["name"]: getattr(self, "t_" + t["function"]["name"]) for t in TOOLS}
+            n: getattr(self, "t_" + n) for n in (*_SHARED, "make_variations")}
 
     async def run(self, name: str, args: dict) -> str:
         fn = self.handlers.get(name)
         if fn is None:
             return json.dumps({"error": f"unknown tool {name}"})
+        if name not in (IMAGE_TOOL_NAMES if self.image_only else _SHARED):   # a call to a tool it wasn't offered
+            return json.dumps({"error": f"{name} is not available in this project"})
         try:
             out = fn(**args)
             if hasattr(out, "__await__"):
@@ -109,7 +152,8 @@ class ToolBox:
     # ---------------------------------------------------------------- references
     def t_search_references(self, text, kind=None):
         hits = self.h.search_references(text, kind)
-        return {"matches": [{k: r[k] for k in ("ref_id", "name", "kind", "caption", "description", "used_in_shots", "version_n")}
+        keys = ("ref_id", "name", "kind", "caption", "description", "version_n") + (() if self.image_only else ("used_in_shots",))
+        return {"matches": [{k: r[k] for k in keys}
                             for r in hits]} if hits else {"matches": [], "note": "nothing similar exists"}
 
     def t_get_reference(self, ref_id):
@@ -118,11 +162,16 @@ class ToolBox:
             if not ref:
                 return {"error": f"no reference {ref_id}"}
             out = self.h.ref_summary(s, ref)
+            if self.image_only:
+                del out["used_in_shots"]
             out["versions"] = [{"version_id": v.id, "n": v.n, "caption": v.caption, "score": (v.critic or {}).get("score")}
                                for v in s.exec(select(m.RefVersion).where(m.RefVersion.ref_id == ref_id)).all()]
         return out
 
-    def t_create_reference(self, name, kind, description, tags=None, reuse_checked=False):
+    def t_create_reference(self, name, kind, description, tags=None, reuse_checked=False, aspect_ratio=None):
+        if self.image_only:
+            ref_id, job = self.h.create_reference(name, kind, description, tags, aspect=aspect_ratio)
+            return {"ref_id": ref_id, "job_id": job, "status": "rendering", "note": RENDER_NOTE}
         if not reuse_checked:
             hits = self.h.search_references(f"{name} {description}", kind)
             return {"not_created": True, "reason": "check for reusable references first",
@@ -130,15 +179,34 @@ class ToolBox:
         ref_id, job = self.h.create_reference(name, kind, description, tags)
         return {"ref_id": ref_id, "job_id": job, "status": "rendering - it can be assigned to shots once it finishes"}
 
-    def t_revise_reference(self, ref_id, change):
-        job = self.h.revise_reference(ref_id, change)
+    def _busy_render(self, ref_id) -> dict | None:
+        j = self.h.active_ref_render(ref_id)
+        return {"not_started": True, "reason": f"job {j.id} is already rendering this image. Don't start another: a "
+                "revision made now would start from the old version and lose that job's change. Tell the user this change "
+                "was NOT started, and ask them to send it again once that render finishes. You can't do it later "
+                "yourself, because nothing wakes you."} if j else None
+
+    def t_revise_reference(self, ref_id, change, aspect_ratio=None):
+        busy = self._busy_render(ref_id)
+        if busy:
+            return busy
+        job = self.h.revise_reference(ref_id, change, aspect=aspect_ratio)
         with self.h.p().session() as s:
             imp = deps.ref_impact(s, ref_id)
         out = {"job_id": job, "status": "rendering a new version"}
+        if self.image_only:
+            out["note"] = RENDER_NOTE
         if imp.shots:
             out["warning"] = (f"used in {len(imp.shots)} shot(s) ({imp.rendered_count} with finished clips). "
                               "The user will choose which shots switch to the new version.")
         return out
+
+    def t_make_variations(self, ref_id, count=3):
+        busy = self._busy_render(ref_id)
+        if busy:
+            return busy
+        return {"job_ids": self.h.make_variations(ref_id, count), "status": "rendering; each result is a new version",
+                "note": RENDER_NOTE}
 
     # ---------------------------------------------------------------- shots
     def t_list_shots(self):
@@ -219,6 +287,8 @@ class ToolBox:
 
     # ---------------------------------------------------------------- misc
     def t_view(self, item):
+        if self.image_only and not item.startswith("ref:"):
+            return {"error": "only images can be viewed here: use 'ref:<ref_id>'"}
         self.pending_media.append(item)
         return {"ok": True, "note": f"{item} will be attached to your next turn"}
 

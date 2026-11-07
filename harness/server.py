@@ -101,7 +101,8 @@ async def ping():
 async def status(full: bool = False):
     return {"servers": await H.refresh_servers(full), "workflows": H.workflows_status(),
             "gpu_pool": {**H.pool.status(), "krea_on_video_problems": H.krea_on_video[:5]},
-            "project": {"name": H.project.name, "path": str(H.project.root)} if H.project else None,
+            "project": {"name": H.project.name, "path": str(H.project.root),
+                        "mode": "image" if H.image_only() else "full"} if H.project else None,
             "director_busy": D.busy}
 
 
@@ -227,6 +228,10 @@ class NameIn(BaseModel):
     name: str
 
 
+class ProjectIn(NameIn):
+    image_only: bool = False
+
+
 class PathIn(BaseModel):
     path: str
 
@@ -245,8 +250,8 @@ def _remember(p: Project | None):
 
 
 @app.post("/api/projects")
-async def create_project(body: NameIn):
-    p = await H.create_project(body.name)
+async def create_project(body: ProjectIn):
+    p = await H.create_project(body.name, body.image_only)
     _remember(p)
     bus.publish("project", name=p.name)
     return {"name": p.name, "path": str(p.root)}
@@ -258,6 +263,14 @@ async def open_project(body: PathIn):
     _remember(p)
     bus.publish("project", name=p.name)
     return {"name": p.name, "path": str(p.root)}
+
+
+@app.post("/api/project/upgrade")
+async def upgrade_project():
+    proj()
+    H.upgrade_project()
+    bus.publish("project", name=H.project.name)
+    return {"ok": True}
 
 
 @app.post("/api/project/snapshot")
@@ -330,7 +343,8 @@ async def set_style(req: StyleReq):
     cfg = H.project_settings()
     cfg["krea_style"] = styles.get(req.name)["name"] if req.name else None
     H.set_project_settings(cfg)
-    H.chat_event(f"Project style locked to '{cfg['krea_style']}' - new images use it; existing references keep their look "
+    existing = "existing images" if H.image_only() else "existing references"
+    H.chat_event(f"Project style locked to '{cfg['krea_style']}' - new images use it; {existing} keep their look "
                  "until regenerated." if cfg["krea_style"] else "Project style unlocked.", [])
     return {"current": cfg["krea_style"]}
 
@@ -386,11 +400,12 @@ class RefIn(BaseModel):
     description: str
     tags: list[str] = []
     enhance: bool = True                   # off: description is the exact Krea prompt
+    aspect: str | None = None              # image-only projects: overrides the kind's frame
 
 
 @app.post("/api/references")
 async def create_ref(r: RefIn):
-    ref_id, job = H.create_reference(r.name, r.kind, r.description, r.tags, enhance=r.enhance)
+    ref_id, job = H.create_reference(r.name, r.kind, r.description, r.tags, enhance=r.enhance, aspect=r.aspect)
     return {"ref_id": ref_id, "job_id": job}
 
 
@@ -403,6 +418,15 @@ class ReviseIn(BaseModel):
 @app.post("/api/references/{ref_id}/revise")
 async def revise_ref(ref_id: int, c: ReviseIn):
     return {"job_id": H.revise_reference(ref_id, c.change, c.prompt, c.enhance)}
+
+
+class VariationsIn(BaseModel):
+    count: int = 3
+
+
+@app.post("/api/references/{ref_id}/variations")
+async def ref_variations(ref_id: int, v: VariationsIn):
+    return {"job_ids": H.make_variations(ref_id, v.count)}
 
 
 @app.post("/api/references/upload")

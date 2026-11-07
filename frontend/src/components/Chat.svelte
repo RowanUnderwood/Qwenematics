@@ -1,6 +1,6 @@
 <script>
   import { api } from '../lib/api.js'
-  import { app, guard } from '../lib/state.svelte.js'
+  import { app, guard, imageOnly } from '../lib/state.svelte.js'
   import Media from './Media.svelte'
 
   let text = $state('')
@@ -88,7 +88,8 @@
     {/if}
     <div class="row">
       <textarea class="grow" rows="3" bind:value={text} onkeydown={key}
-        placeholder="Talk to Qwen: e.g. 'Create a 15 second clip of a fisherwoman mending nets at dawn, making the reference images you need first.' (Enter sends, Shift+Enter for a new line)"></textarea>
+        placeholder={imageOnly() ? "Talk to Qwen: e.g. 'Make a square poster of a fisherwoman mending nets at dawn.' (Enter sends, Shift+Enter for a new line)"
+                                 : "Talk to Qwen: e.g. 'Create a 15 second clip of a fisherwoman mending nets at dawn, making the reference images you need first.' (Enter sends, Shift+Enter for a new line)"}></textarea>
       <button class="primary" onclick={send} disabled={app.busy || !text.trim()}>Send</button>
     </div>
   </div>

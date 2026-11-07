@@ -76,6 +76,16 @@ Prompt files and `prompts/knowledge/*` are cached (`lru_cache`), so editing them
   - `prompts/knowledge/krea_styles.json` holds 288 tested paragraphs from the Krea 2 Style Library.
   - A project can lock one (`krea_style` project setting, picked in the Bible tab). `styles.enforce_style` then rewrites every Krea prompt's `Style:` line.
   - Sample images are cached in `cache/krea_styles/`.
+- **Image-only projects:**
+  - The mode is its own `Meta(key="mode", value="image")` row, read with `Harness.image_only()`; no row means a full project. Keep it out of the `settings` blob, which saves and resets replace whole. The UI reads it as `app.project.mode` (`imageOnly()`).
+  - `upsert_shot`, `assign_ref`, `render_shot` and `final_cut` refuse in this mode, so a new way into video must go through them or call `_require_video`.
+  - Qwen gets `tools_for(True, ...)` and `prompts/{director,krea_writer,critic}_image.md`. `TOOLS` and the original prompts are the full-project versions, so a new image tool must be added to both lists on purpose.
+  - The Krea writer gets `image_digest()` instead of the bible. `_ref_job` keeps a revision's frame and seed; those branches apply only in this mode.
+  - The upgrade (`POST /api/project/upgrade`) is one way, because a full project may then hold shots.
+- **Change requests on images:**
+  - `_ref_job` passes `change` to `roles.critique`. A result with `change_visible: false` is capped at `MISSING_CHANGE_SCORE`, so the job retries instead of passing on the original description.
+  - An accepted change is appended to `Reference.description` as "Later change (overrides the above)", so later writers and critics don't undo it.
+  - Qwen isn't woken when a render finishes; it only runs on a user message.
 - **GPU pool (`harness/jobs/gpu_pool.py`):**
   - Krea renders go through `pool.image_slot()`, which yields the server name for `runner.render(server=...)`. The 5090 is borrowed while video is idle.
   - `_shot_job` wraps its whole MiniMax section in `pool.video_slot()` (video first; Krea is emptied out first).
@@ -86,6 +96,8 @@ Prompt files and `prompts/knowledge/*` are cached (`lru_cache`), so editing them
   - `Director.project_state()` regenerates the compact state each turn.
   - Old chat media is never resent.
   - Chat rows with role `event` cost no context.
+  - The last `HISTORY_TOOL_TURNS` tool-using turns keep their tool calls in shortened form, and older turns are plain text. Don't drop these or add a text summary of them: from text alone, Qwen writes "it's rendering" without calling a tool (replayed on the navi3 project: 9 of 24 calls with text history, 0 of 12 with real calls).
+  - `_false_claim` sends such a reply back once. If Qwen repeats it, the reply gets a note saying no render started.
   - Keep new director-facing text short.
 - **Frontend:** Svelte 5 runes. One shared store `app` in `state.svelte.js`. Wrap API calls in `guard()`.
 - **Python:** 3.13 venv in `.venv`. Match the surrounding style: compact, type-hinted, comments only where the reason isn't obvious.

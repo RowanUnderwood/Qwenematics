@@ -14,10 +14,12 @@ class ScriptedLLM:
     def __init__(self, replies):
         self.replies = list(replies)
         self.seen = []
+        self.tools = []
         self.base = "fake"
 
     async def chat(self, messages, **kw):
         self.seen.append([dict(x) for x in messages])
+        self.tools.append(kw.get("tools"))
         return self.replies.pop(0)
 
     async def context_window(self, default=65536):
@@ -75,12 +77,14 @@ def test_director_creates_shot_and_enforces_reuse(harness):
         assert "Harbour dawn" in h.llm.seen[-1][0]["content"]
         assert "Mara" in h.llm.seen[-1][0]["content"]
 
-        # second turn sees the first turn as plain text history, not tool traffic
+        # second turn sees the first turn's real tool calls, and no text marker
         h.llm = ScriptedLLM([Reply(content="ok")])
         await d.turn("thanks")
         msgs = h.llm.seen[0]
-        assert [x["role"] for x in msgs] == ["system", "user", "assistant", "user"]
-        assert "tools used:" in msgs[2]["content"]
+        assert msgs[0]["role"] == "system" and msgs[1]["role"] == "user" and msgs[-1]["role"] == "user"
+        assert not any("tools used" in str(x.get("content")) for x in msgs)
+        calls = [x for x in msgs if x.get("tool_calls")]        # the real calls of recent turns stay in the history
+        assert calls and any(x["role"] == "tool" for x in msgs)
         await h.close_project()
     asyncio.run(go())
 
