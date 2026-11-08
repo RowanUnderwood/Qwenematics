@@ -7,11 +7,14 @@ none | low | medium | xhigh; earlier turns' reasoning is not resent.
 from __future__ import annotations
 
 import asyncio
+import base64
+import io
 import json
 from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable
 
 import httpx
+from PIL import Image
 
 DeltaCb = Callable[[str, str], Awaitable[None] | None]   # (kind: "content"|"reasoning", text)
 
@@ -73,10 +76,59 @@ class LLM:
         if self._context_window is None:
             try:
                 data = (await self.http.get("/v1/models", timeout=5)).json().get("data", [{}])[0]
-                self._context_window = int(data.get("context_window") or data.get("max_model_len") or default)
+                n = (data.get("context_window") or data.get("max_model_len")
+                     or (data.get("meta") or {}).get("n_ctx"))           # llama.cpp
+                self._context_window = int(n or default)
             except (httpx.HTTPError, ValueError, IndexError, TypeError):
                 return default
         return self._context_window
+
+    async def probe(self, check_vision: bool = False) -> dict:
+        """What the server offers: {up, models, model_found, vision, video, n_ctx, vision_ok, error}."""
+        out: dict[str, Any] = {"up": False, "models": [], "model_found": False, "vision": None,
+                               "video": None, "n_ctx": None, "vision_ok": None, "error": ""}
+        try:
+            r = await self.http.get("/v1/models", timeout=5)
+            r.raise_for_status()
+            data = r.json().get("data") or []
+        except (httpx.HTTPError, ValueError) as e:
+            out["error"] = f"{type(e).__name__}: {e}"[:300]
+            return out
+        out["up"] = True
+        out["models"] = [m.get("id") for m in data if m.get("id")]
+        m = next((m for m in data if m.get("id") == self.model), data[0] if data else {})
+        out["model_found"] = self.model in out["models"]
+        mods = (m.get("architecture") or {}).get("input_modalities")
+        if mods:
+            out["vision"], out["video"] = "image" in mods, "video" in mods
+        out["n_ctx"] = m.get("context_window") or m.get("max_model_len") or (m.get("meta") or {}).get("n_ctx")
+        try:                                                # llama.cpp only
+            p = await self.http.get("/props", timeout=5)
+            if p.status_code == 200:
+                md = p.json().get("modalities") or {}
+                out["vision"] = md.get("vision", out["vision"])
+                out["video"] = md.get("video", out["video"])
+        except (httpx.HTTPError, ValueError):
+            pass
+        if check_vision:
+            out["vision_ok"], err = await self._vision_check()
+            if err:
+                out["error"] = err
+        return out
+
+    async def _vision_check(self) -> tuple[bool, str]:
+        """Show the model a red square and ask its colour: proves images really get through."""
+        buf = io.BytesIO()
+        Image.new("RGB", (64, 64), (220, 20, 20)).save(buf, "PNG")
+        uri = "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode("ascii")
+        try:
+            reply = await self.chat([{"role": "user", "content": [
+                {"type": "text", "text": "What colour is this image? Answer with one word."},
+                {"type": "image_url", "image_url": {"url": uri}}]}], effort="none", max_tokens=200)
+        except (LLMError, httpx.HTTPError) as e:
+            return False, f"vision check: {e}"[:300]
+        text = reply.content.lower()
+        return "red" in text, "" if "red" in text else f"vision check: model said {reply.content[:80]!r}"
 
     async def chat(self, messages: list[dict], *, tools: list[dict] | None = None,
                    effort: str | None = None, max_tokens: int = 4096, temperature: float | None = None,

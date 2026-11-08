@@ -16,6 +16,7 @@ All launchers set `CUDA_DEVICE_ORDER=PCI_BUS_ID`, so device 0 = 5090, 1 = 4090, 
 | ComfyUI image (Krea) | 8190 | 3090 | `launchers/comfy_image_3090.bat` |
 | ComfyUI video (MiniMax) | 8189 | 5090 | `launchers/comfy_video_5090.bat` |
 | Ninfer (Qwen) | 1235 | 4090 | `H:/Ninfer Qwen/launch-ninfer-4090.bat`; stop with `stop-ninfer-4090.bat` |
+| Remote Qwen (optional) | 192.168.2.74:8080 | other PC | llama.cpp, `qwen36-genesis-hermes`; picked in Settings → Qwen (LLM) |
 | Stability Matrix ComfyUI | 8188 | 5090 | The user's own. **Never stop it or write to it.** |
 
 - **No `--use-sage-attention` on the 3090 instance.** It renders black Krea images there; it's fine on the 5090.
@@ -68,6 +69,7 @@ Prompt files and `prompts/knowledge/*` are cached (`lru_cache`), so editing them
   - Reference versions are immutable: edits make a new version, and shots go stale (via `input_hash`) instead of changing.
 - **File ids restart at 1 in every project.** Frontend media URLs go through `fileSrc` / `thumbSrc` in `state.svelte.js`, which add the project. Use those, never `/api/files/<id>` directly.
 - **Event bus:** `bus.publish(event, **data)` rejects a `kind` key, because the websocket message uses `kind` for the event name. Use `job_kind=`, `stream=` and so on.
+- **LLM backend:** `Settings.llm` is the *active* profile: `settings.yaml` `llm`, or its `remote` block overlaid when the state file's `llm.backend` is remote (no launcher/stopper; `media_mode: frames`, because that llama.cpp rejects `video_url`). `Harness.set_llm` swaps the client; `PUT /api/llm` refuses while Qwen or image/video jobs are busy. Send clips through `media.clip_parts`, never `video_part` directly.
 - **Ninfer calls:**
   - `reasoning_effort` is none, low, medium or xhigh.
   - Reasoning tokens count against `max_tokens`, so keep generous limits on writer and critic calls or outputs get cut off.

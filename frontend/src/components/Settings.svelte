@@ -52,6 +52,28 @@
     await load.psettings()
     toast('Defaults restored')
   }
+  let llm = $state(null)                 // /api/llm: backend, active, local, remote
+  let llmForm = $state({ backend: 'local', url: '', model: '' })
+  let llmTest = $state(null)             // last /api/llm/test result
+  let testing = $state(false)
+  async function loadLlm() {
+    const r = await guard(() => api.get('/api/llm'))
+    if (!r) return
+    llm = r
+    llmForm = { backend: r.backend, url: (r.remote.base_url || '').replace(/^https?:\/\//, ''), model: r.remote.model || '' }
+  }
+  loadLlm()
+  async function testLlm() {
+    testing = true; llmTest = null
+    llmTest = await guard(() => api.post('/api/llm/test', { remote_url: llmForm.url, remote_model: llmForm.model }))
+    testing = false
+  }
+  async function saveLlm() {
+    const r = await guard(() => api.put('/api/llm', { backend: llmForm.backend, remote_url: llmForm.url, remote_model: llmForm.model }))
+    if (r) { await loadLlm(); toast(`Qwen now uses ${r.active.model} at ${r.active.url}`) }
+  }
+  const yn = (v) => (v === true ? 'ok' : v === false ? 'bad' : '')
+
   async function upgrade() {
     if (!confirm('Upgrade this project to a full project?\n\nShots, the timeline, the story bible and video tools become available. Your images stay as they are.\n\nThis cannot be undone.')) return
     if (await guard(() => api.post('/api/project/upgrade'))) toast('This is now a full project')
@@ -61,13 +83,48 @@
 <div class="scroll pad col" style="max-width:1100px">
   <div class="row"><h2 class="grow" style="margin:0">Settings</h2>
     <button onclick={restoreDefaults} title="Reset GPU sharing and this project's settings; keeps the locked style and all work">Restore defaults…</button></div>
+  <h2>Qwen (LLM)</h2>
+  {#if llm}
+    <div class="card col">
+      <div class="row">
+        <label class="row"><input type="radio" value="local" bind:group={llmForm.backend} /> Local: Ninfer on the 4090 ({llm.local.model})</label>
+        <label class="row"><input type="radio" value="remote" bind:group={llmForm.backend} /> Remote: llama.cpp on the LAN</label>
+      </div>
+      <div class="row">
+        <label class="f">Address (IP:port)
+          <input bind:value={llmForm.url} placeholder="192.168.2.74:8080" style="width:200px" /></label>
+        <label class="f">Model
+          <input bind:value={llmForm.model} placeholder="qwen36-genesis-hermes" style="width:240px" /></label>
+        <button onclick={testLlm} disabled={testing}>{testing ? 'Testing…' : 'Test'}</button>
+        <button class="primary" onclick={saveLlm}>{llmForm.backend === llm.backend ? 'Save' : 'Use'}</button>
+      </div>
+      {#if llmTest}
+        <div class="row" style="font-size:12px">
+          <span class="badge {llmTest.up ? 'ok' : 'bad'}">{llmTest.up ? 'up' : 'down'}</span>
+          {#if llmTest.up}
+            <span class="badge {llmTest.model_found ? 'ok' : 'bad'}">model {llmTest.model_found ? 'found' : 'not found'}</span>
+            <span class="badge {yn(llmTest.vision_ok ?? llmTest.vision)}">vision {llmTest.vision_ok ? 'works' : llmTest.vision ? 'claimed, check failed' : 'no'}</span>
+            <span class="badge {yn(llmTest.video)}">video {llmTest.video ? 'claimed' : 'no'}</span>
+            {#if llmTest.n_ctx}<span class="muted">context {llmTest.n_ctx}</span>{/if}
+            {#each llmTest.models as id}<button class="small" onclick={() => (llmForm.model = id)} title="Use this model name">{id}</button>{/each}
+          {/if}
+          {#if llmTest.error}<span class="muted">{llmTest.error}</span>{/if}
+        </div>
+      {/if}
+      <span class="muted" style="font-size:12px">
+        Now using {llm.active.model} at {llm.active.url}; clips go to Qwen as {llm.active.media_mode === 'frames' ? 'timestamped stills' : 'video'}.
+        The remote always sends stills, because its server rejects video input. Switch while Qwen and the image/video jobs are idle.
+      </span>
+    </div>
+  {/if}
+
   <h2>Servers</h2>
   {#if app.status}
     {#each Object.entries(app.status.servers) as [name, s]}
       <div class="row card">
         <strong style="width:60px">{name}</strong><span class="badge {s.up ? 'ok' : 'bad'}">{s.up ? 'up' : 'down'}</span>
         <span class="muted grow">{s.url} {s.gpu || ''} {s.error || ''}</span>
-        {#if !s.up}<button onclick={() => launch(name)}>Launch</button>{/if}
+        {#if !s.up && !s.remote}<button onclick={() => launch(name)}>Launch</button>{/if}
       </div>
     {/each}
   {/if}

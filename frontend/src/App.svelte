@@ -107,7 +107,7 @@
         <button class="small" onclick={() => load.status(true)} title="Re-check servers, nodes, models and workflow files">↻</button>
       </div>
     {/if}
-    <button class="small" onclick={() => (off = { comfy: true, llm: true })} title="Shut down the harness">⏻ Shut down</button>
+    <button class="small" onclick={() => (off = { comfy: true, llm: !app.status?.servers?.llm?.remote })} title="Shut down the harness">⏻ Shut down</button>
   </header>
 
   <main>
@@ -145,7 +145,7 @@
       <h2>Shut down the harness?</h2>
       {#if activeJobs}<div class="badge warn">{activeJobs} job(s) running or queued will be cancelled. Finished images and clips are kept.</div>{/if}
       <label class="row"><input type="checkbox" bind:checked={off.comfy} /> Also close the harness's ComfyUI windows (image :8190, video :8189)</label>
-      <label class="row"><input type="checkbox" bind:checked={off.llm} /> Also stop Qwen (Ninfer on the 4090)</label>
+      {#if !app.status?.servers?.llm?.remote}<label class="row"><input type="checkbox" bind:checked={off.llm} /> Also stop Qwen (Ninfer on the 4090)</label>{/if}
       <span class="muted">Everything is saved as you go. Other ComfyUI instances (e.g. Stability Matrix) are not touched.</span>
       <div class="row"><div class="grow"></div><button onclick={() => (off = null)}>Cancel</button><button class="danger" onclick={shutDown}>Shut down</button></div>
     </div>

@@ -21,7 +21,7 @@ from sqlmodel import select
 from .comfy.client import ComfyClient
 from .comfy.manifest import Registry, WorkflowError
 from .comfy.runner import Runner
-from .config import Settings, get_settings
+from .config import Settings, get_settings, load_state, save_state
 from .db import deps
 from .db import models as m
 from .db.project import Project, next_id
@@ -58,7 +58,7 @@ class Harness:
         self.clients = {n: ComfyClient(c["url"], n) for n, c in s.servers.items()}
         self.object_info: dict[str, dict] = {}
         self.runner = Runner(self.registry, self.clients, self.object_info, s.comfy_dir)
-        self.llm = LLM(s.llm["base_url"], s.llm["model"], s.llm.get("reasoning_effort", "low"))
+        self.llm = self._make_llm()
         self.project: Project | None = None
         self.queue: JobQueue | None = None
         self.picks: dict[int, tuple[asyncio.Event, list]] = {}    # job id -> (event, [chosen render id])
@@ -71,6 +71,23 @@ class Harness:
                             queued=lambda: self.queue.queues["image"].qsize() if self.queue else 0,
                             est={k: float(v) for k, v in (g.get("est_seconds") or {}).items()},
                             on_change=lambda: bus.publish("servers"))
+
+    def _make_llm(self) -> LLM:
+        c = self.settings.llm
+        return LLM(c["base_url"], c["model"], c.get("reasoning_effort", "low"))
+
+    def llm_jobs(self) -> int:
+        """Image and video jobs queued or running: they call the LLM."""
+        return sum(self.queue.pending(l) for l in ("image", "video")) if self.queue else 0
+
+    async def set_llm(self, **changes):
+        """Switch the LLM backend or edit the remote's url/model (state file `llm`), then
+        rebuild the client. The caller makes sure nothing is mid-call."""
+        st = dict(load_state(self.settings.projects_root).get("llm") or {})
+        st.update({k: v for k, v in changes.items() if v is not None})
+        save_state(self.settings.projects_root, llm=st)
+        old, self.llm = self.llm, self._make_llm()
+        await old.close()
 
     def _can_borrow_video(self) -> bool:
         return (self.settings.gpu_sharing.get("image_on_video_gpu", "auto") != "off"
@@ -113,7 +130,9 @@ class Harness:
         for name in self.clients:
             if name in status:
                 status[name]["loaded"] = self.pool.loaded.get(name)
-        status["llm"] = {"url": self.llm.base, "up": await self.llm.alive()}
+        c = self.settings.llm
+        status["llm"] = {"url": self.llm.base, "up": await self.llm.alive(), "model": self.llm.model,
+                         "backend": c["backend"], "remote": c["backend"] == "remote"}
         return status
 
     def _check_krea_on_video(self):
@@ -781,10 +800,10 @@ class Harness:
                 pick_idx, crit = 0, {}
                 if n > 1 or more:
                     ctx.progress(0.87, "comparing previews" if n > 1 else "reviewing the preview")
-                    parts = []
+                    parts, llm_cfg = [], self.settings.llm
                     for k, (_, _, res) in enumerate(previews, 1):
-                        vp, _ = media.video_part(res.outputs["preview"][0], proj.media("proxies"))
-                        parts += ([{"type": "text", "text": f"Candidate {k}:"}] if n > 1 else []) + [vp]
+                        vp, _ = media.clip_parts(res.outputs["preview"][0], proj.media, llm_cfg)
+                        parts += ([{"type": "text", "text": f"Candidate {k}:"}] if n > 1 else []) + vp
                     try:
                         crit = await roles.critique(self.llm, intent=shot_d["description"], prompt=prompt,
                                                     media=parts, candidates=n if n > 1 else 0)

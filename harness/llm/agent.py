@@ -100,7 +100,7 @@ class Director:
         """Attachments -> (message parts, text labels)."""
         h, proj = self.h, self.h.p()
         parts, labels = [], []
-        mode = h.settings.llm.get("media_mode", "native_video")
+        llm = h.settings.llm
         with proj.session() as s:
             for it in items:
                 if isinstance(it, str):
@@ -134,15 +134,10 @@ class Director:
                     continue
                 path = proj.abspath(f)
                 if is_video:
-                    if mode == "frames":
-                        p, _ = media.frame_parts(path, proj.media("frames"))
-                        parts += [{"type": "text", "text": label}] + p
-                    else:
-                        p, _ = media.video_part(path, proj.media("proxies"), h.settings.llm.get("proxy_long_edge", 768),
-                                                h.settings.llm.get("proxy_fps", 2))
-                        parts += [{"type": "text", "text": label}, p]
+                    p, _ = media.clip_parts(path, proj.media, llm)
+                    parts += [{"type": "text", "text": label}] + p
                 else:
-                    p, _ = media.image_part(path, h.settings.llm.get("proxy_long_edge", 768))
+                    p, _ = media.image_part(path, llm.get("proxy_long_edge", 768))
                     parts += [{"type": "text", "text": label}, p]
                 labels.append(f"[attached: {label}]")
         return parts, labels

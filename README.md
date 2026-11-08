@@ -10,6 +10,7 @@ A local GUI where Qwen 3.8 (Ninfer) works as a designer and collaborator. It dri
    - **image**: `launchers\comfy_image_3090.bat`, ComfyUI on the RTX 3090, port 8190 (Krea 2)
    - **video**: `launchers\comfy_video_5090.bat`, ComfyUI on the RTX 5090, port 8189 (MiniMax H3)
    - **llm**: `H:\Ninfer Qwen\launch-ninfer-4090.bat`, Ninfer on the RTX 4090, port 1235. The 4090 must be free; LM Studio holds it when loaded.
+     Or use a llama.cpp server on another PC: in **Settings → Qwen (LLM)** pick *Remote*, enter its IP:port (default `192.168.2.74:8080`) and model (`qwen36-genesis-hermes`), press **Test** (it checks that the model is listed and that vision really works), then **Use**. On the remote, clips go to Qwen as 8 timestamped stills, because that server rejects native video.
 3. Create a project and talk to Qwen in **Chat**, for example: *"Create a 15 second video of X, creating all the reference images you think necessary first."*
 
 Ports and GPUs live in `settings.yaml`. The launchers set `CUDA_DEVICE_ORDER=PCI_BUS_ID` (0 = 5090, 1 = 4090, 2 = 3090). Do **not** add `--use-sage-attention` for the 3090: Krea 2 renders black images there.

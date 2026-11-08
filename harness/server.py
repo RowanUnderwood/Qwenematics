@@ -20,13 +20,14 @@ from pydantic import BaseModel
 from sqlmodel import select
 
 from . import procs, styles
-from .config import ROOT, load_state, save_state
+from .config import ROOT, load_state, normalize_llm_url, save_state
 from .core import DEFAULT_PROJECT_SETTINGS, Harness, HarnessError
 from .db import deps
 from .db import models as m
 from .db.project import Project, reveal_in_explorer
 from .events import bus
 from .llm.agent import Director
+from .llm.client import LLM
 
 log = logging.getLogger("harness")
 H: Harness
@@ -109,7 +110,8 @@ async def status(full: bool = False):
 @app.post("/api/servers/{name}/launch")
 async def launch(name: str):
     s = H.settings
-    path = Path(s.llm["launcher"]) if name == "llm" else s.server_launcher(name)
+    l = s.llm.get("launcher") if name == "llm" else None
+    path = (Path(l) if l else None) if name == "llm" else s.server_launcher(name)
     if not path or not path.exists():
         raise HTTPException(404, f"no launcher for {name}")
     subprocess.Popen(["cmd.exe", "/c", "start", "", str(path)], cwd=str(path.parent))
@@ -173,6 +175,51 @@ async def put_gpu_sharing(body: GpuSharingIn):
     H.pool._dispatch()                          # a newly allowed borrow can start now
     bus.publish("servers")
     return await get_gpu_sharing()
+
+
+class LlmIn(BaseModel):
+    backend: str | None = None                 # local | remote
+    remote_url: str | None = None              # host:port, with or without http:// and /v1
+    remote_model: str | None = None
+
+
+def _llm_view() -> dict:
+    s = H.settings
+    local = {k: s.raw["llm"].get(k) for k in ("base_url", "model")}
+    return {"backend": s.llm["backend"], "active": {"url": H.llm.base, "model": H.llm.model,
+                                                    "media_mode": s.llm.get("media_mode", "native_video")},
+            "local": local, "remote": {k: s.llm_remote.get(k) for k in ("base_url", "model")}}
+
+
+@app.get("/api/llm")
+async def get_llm():
+    return {**_llm_view(), "probe": await H.llm.probe()}
+
+
+@app.post("/api/llm/test")
+async def test_llm(body: LlmIn):
+    """Probe an address without switching to it; checks that images really get through."""
+    url = normalize_llm_url(body.remote_url) if body.remote_url else H.settings.llm_remote.get("base_url", "")
+    if not url:
+        raise HTTPException(400, "no address to test")
+    c = LLM(url, body.remote_model or H.settings.llm_remote.get("model", ""), timeout=120)
+    try:
+        r = await c.probe(check_vision=True)
+    finally:
+        await c.close()
+    return {"url": url, **r}
+
+
+@app.put("/api/llm")
+async def put_llm(body: LlmIn):
+    if body.backend not in (None, "local", "remote"):
+        raise HTTPException(400, "backend must be local or remote")
+    if D.busy or H.llm_jobs():
+        raise HTTPException(409, "Qwen is busy (chat or image/video jobs running); switch when they finish")
+    url = normalize_llm_url(body.remote_url) if body.remote_url else None
+    await H.set_llm(backend=body.backend, remote_url=url, remote_model=(body.remote_model or "").strip() or None)
+    bus.publish("servers")
+    return _llm_view()
 
 
 @app.post("/api/settings/restore_defaults")
@@ -405,6 +452,8 @@ class RefIn(BaseModel):
 
 @app.post("/api/references")
 async def create_ref(r: RefIn):
+    if r.aspect:
+        await H.ensure_object_info("image")
     ref_id, job = H.create_reference(r.name, r.kind, r.description, r.tags, enhance=r.enhance, aspect=r.aspect)
     return {"ref_id": ref_id, "job_id": job}
 
@@ -747,8 +796,8 @@ async def cleanup():
     with p.session() as s:
         plan = deps.orphan_plan(s)
         failed = deps.apply_delete(p, s, plan, force=True)
-    shutil.rmtree(p.media("proxies"), ignore_errors=True)
-    shutil.rmtree(p.media("thumbs"), ignore_errors=True)
+    for cache in ("proxies", "frames", "thumbs"):
+        shutil.rmtree(p.media(cache), ignore_errors=True)
     bus.publish("shot", id=None)
     bus.publish("reference", id=None)
     return {"failed": failed, "removed": len(plan.files)}
@@ -778,8 +827,20 @@ async def exports():
 
 # ------------------------------------------------------------------ frontend
 DIST = ROOT / "frontend" / "dist"
+
+
+class UI(StaticFiles):
+    """index.html must be revalidated, or browsers keep loading the previous build's
+    hashed bundle after a rebuild. The hashed assets themselves may cache."""
+    async def get_response(self, path, scope):
+        r = await super().get_response(path, scope)
+        if not path.startswith("assets/"):
+            r.headers["Cache-Control"] = "no-cache"
+        return r
+
+
 if DIST.exists():
-    app.mount("/", StaticFiles(directory=DIST, html=True), name="ui")
+    app.mount("/", UI(directory=DIST, html=True), name="ui")
 
 
 APP_IDS = {"qwenematics", "qwen-video-harness"}   # the old id, so a copy started before the rename is found

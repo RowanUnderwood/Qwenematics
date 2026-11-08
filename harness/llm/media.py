@@ -117,6 +117,15 @@ def frame_parts(path: Path, cache_dir: Path, n: int = 8, edge: int = 768) -> tup
     return parts, total
 
 
+def clip_parts(path: Path, media_dir, llm: dict) -> tuple[list[dict], int]:
+    """A clip as message parts, per the active backend's media_mode (native_video | frames).
+    `media_dir(name)` gives a project cache folder, e.g. Project.media."""
+    if llm.get("media_mode", "native_video") == "frames":
+        return frame_parts(path, media_dir("frames"), edge=llm.get("proxy_long_edge", 768))
+    p, tok = video_part(path, media_dir("proxies"), llm.get("proxy_long_edge", 768), llm.get("proxy_fps", 2))
+    return [p], tok
+
+
 def last_frame(path: Path, dest: Path) -> Path:
     """Grab the final frame of a clip (used to chain shots: last frame -> next first frame)."""
     dest.parent.mkdir(parents=True, exist_ok=True)

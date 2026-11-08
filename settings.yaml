@@ -22,6 +22,11 @@ llm:
   proxy_fps: 2
   reasoning_effort: low          # per-request; none | low | medium | xhigh
   summarize_at: 0.6              # fraction of the context window
+  backend: local                 # local (Ninfer, above) | remote; the Settings tab switches it
+  remote:                        # llama.cpp on the LAN; GUI edits of url/model override these
+    base_url: http://192.168.2.74:8080
+    model: qwen36-genesis-hermes
+    media_mode: frames           # this server rejects video_url, so clips go as timestamped stills
 
 workflows:
   root: workflows

@@ -43,7 +43,30 @@ class Settings:
 
     @property
     def llm(self) -> dict:
-        return self.raw["llm"]
+        """The active LLM profile: settings.yaml `llm`, or its `remote` block overlaid when the
+        GUI (state file `llm`) picked the remote backend. A remote has no launcher/stopper."""
+        base = {k: v for k, v in self.raw["llm"].items() if k != "remote"}
+        st = load_state(self.projects_root).get("llm") or {}
+        remote = self.llm_remote
+        backend = st.get("backend") or base.get("backend") or "local"
+        if backend == "remote":
+            base = {k: v for k, v in base.items() if k not in ("launcher", "stopper")}
+            base.update({"media_mode": "frames", **remote})
+        base["backend"] = backend
+        return base
+
+    @property
+    def llm_remote(self) -> dict:
+        """settings.yaml `llm.remote` with the GUI's url/model edits applied."""
+        r = dict(self.raw["llm"].get("remote") or {})
+        st = load_state(self.projects_root).get("llm") or {}
+        if st.get("remote_url"):
+            r["base_url"] = st["remote_url"]
+        if st.get("remote_model"):
+            r["model"] = st["remote_model"]
+        if r.get("base_url"):
+            r["base_url"] = normalize_llm_url(r["base_url"])
+        return r
 
     @property
     def workflows_root(self) -> Path:
@@ -78,6 +101,16 @@ class Settings:
 def get_settings(path: str | None = None) -> Settings:
     p = Path(path) if path else ROOT / "settings.yaml"
     return Settings(yaml.safe_load(p.read_text(encoding="utf-8")), p)
+
+
+def normalize_llm_url(url: str) -> str:
+    """'192.168.2.74:8080/v1' -> 'http://192.168.2.74:8080' (the client adds /v1/...)."""
+    u = url.strip().rstrip("/")
+    if "://" not in u:
+        u = "http://" + u
+    if u.endswith("/v1"):
+        u = u[:-3].rstrip("/")
+    return u
 
 
 def load_state(projects_root: Path) -> dict:
