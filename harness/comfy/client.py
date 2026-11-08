@@ -18,6 +18,18 @@ class ComfyError(Exception):
     pass
 
 
+def _rejection_summary(err) -> str:
+    """'node 166 ResolutionSelector: aspect_ratio: ... | ' from a /prompt rejection, so the
+    reason survives when the message is shortened."""
+    if not isinstance(err, dict):
+        return ""
+    out = [f"node {nid} {ne.get('class_type', '')}: {e.get('details') or e.get('message', '')}"
+           for nid, ne in (err.get("node_errors") or {}).items() for e in ne.get("errors", [])]
+    if not out and isinstance(err.get("error"), dict):
+        out = [err["error"].get("details") or err["error"].get("message", "")]
+    return "; ".join(o for o in out if o)[:800] + " | " if any(out) else ""
+
+
 @dataclass
 class OutputFile:
     filename: str
@@ -93,7 +105,7 @@ class ComfyClient:
                 err = r.json()
             except ValueError:
                 err = r.text
-            raise ComfyError(f"prompt rejected: {json.dumps(err)[:2000]}")
+            raise ComfyError(f"prompt rejected: {_rejection_summary(err)}{json.dumps(err)[:2000]}")
         return r.json()["prompt_id"]
 
     async def interrupt(self):

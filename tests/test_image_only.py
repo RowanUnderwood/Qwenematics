@@ -24,6 +24,9 @@ from test_agent import ScriptedLLM, call
 def harness(tmp_path, monkeypatch):
     h = Harness()
     monkeypatch.setattr(h.settings, "raw", {**h.settings.raw, "projects_root": str(tmp_path)})
+    async def offline(full=False):
+        return {}
+    monkeypatch.setattr(h, "refresh_servers", offline)    # stay offline: Director turns would ping the real ports
     return h
 
 
@@ -327,6 +330,46 @@ def test_bad_aspect_and_first_frame_are_refused(pipeline):
             p.h.create_reference("Poster", "first_frame", "A boat")
         await p.h.close_project()
     asyncio.run(go())
+
+
+def test_short_aspect_names_map_to_the_krea_label(pipeline):
+    async def go():
+        p = pipeline
+        await p.h.create_project("Pics", image_only=True)
+        p.h.object_info["image"] = {"ResolutionSelector": {"input": {"required": {"aspect_ratio": [
+            "COMBO", {"options": ["1:1 (Square)", "3:2 (Photo)", "16:9 (Widescreen)"]}]}}}}
+        for given in ("1:1", "1 : 1", "square", "1:1 (square)"):
+            assert p.h._check_aspect(given) == "1:1 (Square)"
+        assert p.h._check_aspect("16:9") == "16:9 (Widescreen)" and p.h._check_aspect(None) is None
+        flush = p.capture()
+        p.h.create_reference("Cover", "concept", "A brain", aspect="1:1")
+        await flush()
+        assert p.runs[0]["aspect_ratio"] == "1:1 (Square)"
+        await p.h.close_project()
+    asyncio.run(go())
+
+
+def test_missing_object_info_is_fetched_before_a_director_turn(harness):
+    calls = []
+    async def refresh(full=False):
+        calls.append(full)
+        harness.object_info["image"] = {"x": {}}
+        return {}
+    harness.refresh_servers = refresh
+    asyncio.run(harness.ensure_object_info("image"))
+    asyncio.run(harness.ensure_object_info("image"))      # already known: no second fetch
+    assert calls == [False]
+
+
+def test_rejection_summary_puts_the_reason_first():
+    from harness.comfy.client import _rejection_summary
+    err = {"error": {"type": "prompt_outputs_failed_validation", "message": "Prompt outputs failed validation", "details": ""},
+           "node_errors": {"166": {"errors": [{"message": "Value not in list",
+                                               "details": "aspect_ratio: '1:1' not in ['1:1 (Square)']"}],
+                                   "class_type": "ResolutionSelector"}}}
+    s = _rejection_summary(err)
+    assert s.startswith("node 166 ResolutionSelector: aspect_ratio: '1:1' not in") and s.endswith(" | ")
+    assert _rejection_summary("plain text") == "" and _rejection_summary({}) == ""
 
 
 def test_full_project_ignores_aspect_and_picks_a_new_seed(pipeline):

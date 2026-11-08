@@ -250,6 +250,8 @@ class Director:
                     *history, {"role": "user", "content": user_content}]
 
         box = ToolBox(h)
+        if box.image_only:
+            await h.ensure_object_info("image")
         tools = tools_for(box.image_only, h.image_aspects() if box.image_only else None)
         all_calls: list[dict] = []
         final = ""

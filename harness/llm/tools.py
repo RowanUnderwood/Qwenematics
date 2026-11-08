@@ -297,7 +297,7 @@ class ToolBox:
             jobs = s.exec(select(m.Job).where(m.Job.state.in_(["queued", "running"])).order_by(m.Job.id)).all()
             recent = s.exec(select(m.Job).where(m.Job.state.in_(["done", "failed"])).order_by(m.Job.id.desc()).limit(5)).all()
         fmt = lambda j: {"job_id": j.id, "kind": j.kind, "state": j.state, "progress": round(j.progress, 2),
-                         "message": j.message[:200], "payload": j.payload}
+                         "message": j.message[:1200 if j.state == "failed" else 200], "payload": j.payload}
         return {"active": [fmt(j) for j in jobs], "recent": [fmt(j) for j in recent]}
 
     def t_ask_user(self, question):

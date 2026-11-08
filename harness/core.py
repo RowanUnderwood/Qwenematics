@@ -197,6 +197,14 @@ class Harness:
             s.delete(s.get(m.Meta, "mode"))
         self.chat_event("Upgraded to a full project: shots, the timeline and the story bible are now available.", [])
 
+    async def ensure_object_info(self, server: str):
+        """Fetch node info a server missed at startup (e.g. ComfyUI started after the harness);
+        without it, enum checks such as the aspect ratio can't run."""
+        if server not in self.object_info:
+            await self.refresh_servers()
+            if server in self.object_info:
+                bus.publish("servers")
+
     def image_aspects(self) -> list[str] | None:
         """The Krea frames on offer, or None while the image server hasn't been seen."""
         return self.registry.get(IMAGE_WF).choices("aspect_ratio", self.object_info.get("image"))
@@ -299,7 +307,7 @@ class Harness:
         if self.image_only():
             if kind == "first_frame":
                 raise HarnessError("first_frame is for video; choose another kind")
-            self._check_aspect(aspect)
+            aspect = self._check_aspect(aspect)
         else:
             aspect = None
         with self.p().session() as s:
@@ -312,10 +320,18 @@ class Harness:
                                 {"ref_id": ref_id, "name": name}) if render else None
         return ref_id, job
 
-    def _check_aspect(self, aspect: str | None):
+    def _check_aspect(self, aspect: str | None) -> str | None:
+        """The exact Krea label for `aspect`; '1:1' or 'square' map to '1:1 (Square)'."""
+        aspect = (aspect or "").strip() or None
         choices = self.image_aspects()
-        if aspect and choices and aspect not in choices:
-            raise HarnessError(f"unknown aspect ratio {aspect!r}; choose one of: {', '.join(choices)}")
+        if not aspect or not choices or aspect in choices:
+            return aspect
+        key = aspect.lower().replace(" ", "")
+        for c in choices:
+            ratio, _, label = c.partition(" (")
+            if key in (ratio.replace(" ", ""), label.rstrip(")").lower().replace(" ", ""), c.lower().replace(" ", "")):
+                return c
+        raise HarnessError(f"unknown aspect ratio {aspect!r}; choose one of: {', '.join(choices)}")
 
     def active_ref_render(self, ref_id: int) -> m.Job | None:
         """A running or queued render that will change this reference. Variations don't count."""
@@ -330,7 +346,7 @@ class Harness:
         frame, in image-only projects only."""
         change, prompt = (change or "").strip() or None, (prompt or "").strip() or None
         if self.image_only():
-            self._check_aspect(aspect)
+            aspect = self._check_aspect(aspect)
         else:
             aspect = None
         if aspect and not change and not prompt:
