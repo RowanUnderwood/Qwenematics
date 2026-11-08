@@ -22,6 +22,7 @@
     const ok = await guard(() => api.post('/api/chat', { text: t, attachments }))
     if (ok) { text = ''; app.context = [] } else app.busy = false
   }
+  async function stop() { await guard(() => api.post('/api/chat/stop')) }
   function key(e) { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() } }
 
   async function pick(a) { await guard(() => api.post(`/api/jobs/${a.job_id}/pick/${a.id}`)) }
@@ -90,7 +91,11 @@
       <textarea class="grow" rows="3" bind:value={text} onkeydown={key}
         placeholder={imageOnly() ? "Talk to Qwen: e.g. 'Make a square poster of a fisherwoman mending nets at dawn.' (Enter sends, Shift+Enter for a new line)"
                                  : "Talk to Qwen: e.g. 'Create a 15 second clip of a fisherwoman mending nets at dawn, making the reference images you need first.' (Enter sends, Shift+Enter for a new line)"}></textarea>
-      <button class="primary" onclick={send} disabled={app.busy || !text.trim()}>Send</button>
+      {#if app.busy}
+        <button class="danger" onclick={stop} title="Stop Qwen's reply; images it already started keep rendering">■ Stop</button>
+      {:else}
+        <button class="primary" onclick={send} disabled={!text.trim()}>Send</button>
+      {/if}
     </div>
   </div>
 </div>

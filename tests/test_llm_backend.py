@@ -112,3 +112,79 @@ def test_put_llm_refuses_while_busy(harness, monkeypatch):
             assert r.status_code == 200 and r.json()["active"]["url"] == "http://9.9.9.9:80"
             assert r.json()["active"]["media_mode"] == "frames"
     asyncio.run(go())
+
+
+# ------------------------------------------------------------------ stalls and Stop
+class _Slow(httpx.AsyncByteStream):
+    """SSE body that sends one delta, then (optionally) goes silent for `pause` s."""
+    def __init__(self, pause: float):
+        self.pause = pause
+
+    async def __aiter__(self):
+        yield b'data: {"choices":[{"delta":{"content":"hi"}}]}\n\n'
+        await asyncio.sleep(self.pause)
+        yield b'data: {"choices":[{"delta":{},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n'
+
+
+def _stall_llm(pause: float, alive: bool) -> LLM:
+    def handler(req: httpx.Request):
+        if req.url.path == "/health":
+            if not alive:
+                raise httpx.ConnectError("asleep")
+            return httpx.Response(200, json={"status": "ok"})
+        return httpx.Response(200, stream=_Slow(pause), headers={"content-type": "text/event-stream"})
+    c = _mock_llm(handler)
+    c.stall_check_s = 0.05
+    return c
+
+
+def test_silent_dead_server_fails_fast():
+    from harness.llm.client import LLMError
+
+    async def go():
+        c = _stall_llm(pause=30, alive=False)
+        t0 = asyncio.get_running_loop().time()
+        with pytest.raises(LLMError, match="stopped answering"):
+            await c.chat([{"role": "user", "content": "x"}])
+        assert asyncio.get_running_loop().time() - t0 < 5
+        await c.close()
+    asyncio.run(go())
+
+
+def test_silent_busy_server_is_waited_for():
+    async def go():
+        c = _stall_llm(pause=0.4, alive=True)        # ~8 stall checks, all answered
+        r = await c.chat([{"role": "user", "content": "x"}])
+        assert r.content == "hi" and r.finish_reason == "stop"
+        await c.close()
+    asyncio.run(go())
+
+
+def test_stop_ends_the_turn_and_saves_a_reply(harness):
+    from sqlmodel import select
+    from harness.db import models as m
+
+    class Hang:
+        model, base = "x", "http://x"
+        async def chat(self, *a, **k):
+            await asyncio.sleep(30)
+        async def context_window(self, default=65536):
+            return default
+        async def close(self):
+            pass
+
+    async def go():
+        await harness.create_project("StopTest", image_only=True)
+        harness.llm = Hang()
+        d = Director(harness)
+        t = asyncio.create_task(d.turn("hello"))
+        await asyncio.sleep(0.2)
+        assert d.busy and d.stop()
+        with pytest.raises(asyncio.CancelledError):
+            await t
+        assert not d.busy and not d.stop()
+        with harness.p().session() as s:
+            last = s.exec(select(m.ChatMessage).order_by(m.ChatMessage.id.desc())).first()
+        assert last.role == "assistant" and "Stopped" in last.content
+        await harness.close_project()
+    asyncio.run(go())

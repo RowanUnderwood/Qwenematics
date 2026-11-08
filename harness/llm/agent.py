@@ -8,6 +8,7 @@ turns are plain text. Old media becomes text placeholders. When history passes
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
@@ -48,6 +49,7 @@ class Director:
     def __init__(self, harness):
         self.h = harness
         self.busy = False
+        self._task: asyncio.Task | None = None
 
     # ---------------------------------------------------------------- state
     def project_state(self) -> str:
@@ -199,10 +201,18 @@ class Director:
         if self.busy:
             raise RuntimeError("Qwen is still answering the previous message")
         self.busy = True
+        self._task = asyncio.current_task()
         try:
             return await self._turn(text, attachments or [])
         finally:
-            self.busy = False
+            self.busy, self._task = False, None
+
+    def stop(self) -> bool:
+        """Cancel the running turn (the Stop button). Tool calls already made stand."""
+        if self._task and not self._task.done():
+            self._task.cancel()
+            return True
+        return False
 
     async def _nudge(self, messages: list[dict], calls: list[dict], on_delta) -> str:
         """Qwen ended its turn with no text (often reasoning ran out of tokens): ask once
@@ -249,12 +259,19 @@ class Director:
             await h.ensure_object_info("image")
         tools = tools_for(box.image_only, h.image_aspects() if box.image_only else None)
         all_calls: list[dict] = []
-        final = ""
-        challenged = False
 
         async def on_delta(kind, chunk):
             bus.publish("chat_delta", stream=kind, text=chunk)
 
+        try:
+            final = await self._rounds(messages, tools, box, all_calls, on_delta)
+        except asyncio.CancelledError:
+            self._save_reply("(Stopped by you.)", all_calls)
+            raise
+        return self._save_reply(final, all_calls)
+
+    async def _rounds(self, messages: list[dict], tools: list[dict], box: ToolBox, all_calls: list[dict], on_delta) -> str:
+        h, final, challenged = self.h, "", False
         for _ in range(MAX_TOOL_ROUNDS):
             reply = await h.llm.chat(messages, tools=tools, on_delta=on_delta, max_tokens=12000)
             if not reply.tool_calls:
@@ -300,8 +317,10 @@ class Director:
             messages[0]["content"] = self._system()
         else:
             final = "(I stopped after many tool calls - tell me how to continue.)"
+        return final
 
-        with h.p().session() as s:
+    def _save_reply(self, final: str, all_calls: list[dict]) -> str:
+        with self.h.p().session() as s:
             am = m.ChatMessage(role="assistant", content=final, tool_calls=all_calls)
             s.add(am)
             s.flush()

@@ -715,6 +715,12 @@ async def chat(c: ChatIn):
     return {"ok": True}
 
 
+@app.post("/api/chat/stop")
+async def chat_stop():
+    """Stop Qwen's current turn; renders it already started keep going."""
+    return {"stopped": D.stop()}
+
+
 # ------------------------------------------------------------------ files
 def _file(file_id: int) -> tuple[m.FileRec, Path]:
     p = proj()

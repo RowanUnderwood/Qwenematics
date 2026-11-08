@@ -56,10 +56,12 @@ class Reply:
 
 
 class LLM:
-    def __init__(self, base_url: str, model: str, effort: str | None = "low", timeout: float = 900):
+    def __init__(self, base_url: str, model: str, effort: str | None = "low", timeout: float = 900,
+                 stall_check_s: float = 60):
         self.base = base_url.rstrip("/")
         self.model = model
         self.effort = effort
+        self.stall_check_s = stall_check_s       # silence before checking the server still answers
         self.http = httpx.AsyncClient(base_url=self.base, timeout=httpx.Timeout(timeout, connect=5))
         self._context_window: int | None = None
 
@@ -150,11 +152,18 @@ class LLM:
 
         reply = Reply()
         calls: dict[int, dict] = {}
-        async with self.http.stream("POST", "/v1/chat/completions", json=body) as r:
+        req = self.http.build_request("POST", "/v1/chat/completions", json=body)
+        r = await self._watch(self.http.send(req, stream=True))
+        try:
             if r.status_code != 200:
                 text = (await r.aread()).decode("utf-8", "replace")
                 raise LLMError(f"HTTP {r.status_code}: {text[:1500]}")
-            async for line in r.aiter_lines():
+            lines = r.aiter_lines()
+            while True:
+                try:
+                    line = await self._watch(anext(lines))
+                except StopAsyncIteration:
+                    break
                 if not line.startswith("data:"):
                     continue
                 data = line[5:].strip()
@@ -187,9 +196,39 @@ class LLM:
                             slot["arguments"] += fn["arguments"]
                     if choice.get("finish_reason"):
                         reply.finish_reason = choice["finish_reason"]
+        finally:
+            await r.aclose()
         reply.tool_calls = [ToolCall(c["id"] or f"call_{i}", c["name"], c["arguments"])
                             for i, c in sorted(calls.items()) if c["name"]]
         return reply
+
+    async def _watch(self, aw):
+        """Await one step of a reply. A server that falls silent may just be busy (one slot,
+        long prompts queue), so every `stall_check_s` of silence ask whether it still
+        answers; two failed checks in a row (asleep, offline) end the call at once instead
+        of after the 900 s read timeout."""
+        task = asyncio.ensure_future(aw)
+        misses = 0
+        try:
+            while True:
+                done, _ = await asyncio.wait({task}, timeout=self.stall_check_s if misses == 0 else 1)
+                if done:
+                    return task.result()
+                misses = 0 if await self._reachable() else misses + 1
+                if misses >= 2:
+                    raise LLMError(f"{self.base} stopped answering (asleep or offline?); no reply for "
+                                   f"over {self.stall_check_s:g} s")
+        finally:
+            if not task.done():
+                task.cancel()
+
+    async def _reachable(self) -> bool:
+        """Any HTTP answer counts: a busy server may be slow but is still there."""
+        try:
+            await self.http.get("/health", timeout=httpx.Timeout(10, connect=5))
+            return True
+        except httpx.HTTPError:
+            return False
 
     async def json_call(self, messages: list[dict], *, effort: str | None = None,
                         max_tokens: int = 4000, retries: int = 2) -> dict:
